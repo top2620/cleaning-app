@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { Save, Camera, Printer, CheckCircle, AlertTriangle, User, Scissors, Shirt } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Save, Camera, Printer, CheckCircle, AlertTriangle, User, Scissors, Shirt, X } from 'lucide-react';
 
-// カードコンポーネント（デザイン枠）
+// カードコンポーネント
 const Card = ({ children, title, icon: Icon, color = "bg-white" }) => (
   <div className={`mb-6 rounded-lg shadow-lg overflow-hidden border border-gray-200 ${color}`}>
     <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center">
@@ -14,10 +14,9 @@ const Card = ({ children, title, icon: Icon, color = "bg-white" }) => (
   </div>
 );
 
-// メインアプリ
 export default function App() {
   const [formData, setFormData] = useState({
-    manageNo: "20231121-001",
+    manageNo: "20231211-001",
     customerName: "",
     itemType: "スーツ上",
     brand: "",
@@ -25,31 +24,54 @@ export default function App() {
     stainLocation: "",
     riskAccepted: false,
     processInstruction: "スタンダード",
-    specialTreatments: [], // 追加: 洗い指示のオプション用
+    specialTreatments: [],
     finishing: "ソフト仕上げ（ふんわり）",
     resultStatus: "良好・完了",
     finalMessage: ""
   });
 
-  // 配列形式のデータ（悩み・オプション等）のトグル処理
-  const handleCheck = (field, value) => {
-    const currentArray = formData[field] || [];
-    const newArray = currentArray.includes(value)
-      ? currentArray.filter(item => item !== value)
-      : [...currentArray, value];
-    setFormData({ ...formData, [field]: newArray });
-  };
+  // 写真データを保存する変数
+  const [photo, setPhoto] = useState(null);
+  const fileInputRef = useRef(null);
 
-  // 汎用的な入力ハンドラ
+  // 入力ハンドラ
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  // 複数選択ボタンのハンドラ
+  const handleCheck = (field, value) => {
+    setFormData(prev => {
+      const currentArray = prev[field] || [];
+      const newArray = currentArray.includes(value)
+        ? currentArray.filter(item => item !== value)
+        : [...currentArray, value];
+      return { ...prev, [field]: newArray };
+    });
+  };
+
+  // カメラ起動ハンドラ
+  const handleCameraClick = () => {
+    fileInputRef.current.click();
+  };
+
+  // 写真が撮られたときの処理
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPhoto(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gray-100 p-4 font-sans text-gray-800">
-      {/* ヘッダーエリア */}
-      <header className="flex justify-between items-center mb-6 bg-blue-700 text-white p-4 rounded-lg shadow-md">
+    <div className="min-h-screen bg-gray-100 p-4 font-sans text-gray-800 pb-20">
+      {/* ヘッダー */}
+      <header className="flex justify-between items-center mb-6 bg-blue-700 text-white p-4 rounded-lg shadow-md sticky top-0 z-50">
         <div className="flex items-center gap-3">
           <div className="bg-white/20 p-2 rounded-full">
             <Shirt className="w-6 h-6 text-white" />
@@ -67,7 +89,7 @@ export default function App() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-6xl mx-auto">
         
-        {/* 左カラム：受付・検品 (Front Desk) */}
+        {/* 左カラム：受付・検品 */}
         <div className="space-y-6">
           <Card title="1. 受付情報の入力" icon={User}>
             <div className="space-y-4">
@@ -76,7 +98,7 @@ export default function App() {
                 <input 
                   type="text" 
                   name="customerName"
-                  className="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 text-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
+                  className="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 text-lg focus:ring-2 focus:ring-blue-500 outline-none"
                   placeholder="例：山田 太郎 様"
                   value={formData.customerName}
                   onChange={handleChange}
@@ -146,26 +168,56 @@ export default function App() {
                 ></textarea>
               </div>
 
-              <div className={`p-3 rounded border transition-colors ${formData.riskAccepted ? 'bg-red-100 border-red-300' : 'bg-white border-red-200'}`}>
-                <label className="flex items-center space-x-3 cursor-pointer select-none">
-                  <input 
-                    type="checkbox" 
-                    className="w-5 h-5 text-red-600 rounded focus:ring-red-500"
-                    checked={formData.riskAccepted}
-                    onChange={(e) => setFormData({...formData, riskAccepted: e.target.checked})}
-                  />
+              <div 
+                className={`p-3 rounded border transition-colors cursor-pointer ${formData.riskAccepted ? 'bg-red-100 border-red-300' : 'bg-white border-red-200'}`}
+                onClick={() => setFormData(prev => ({...prev, riskAccepted: !prev.riskAccepted}))}
+              >
+                <div className="flex items-center space-x-3 select-none">
+                  <div className={`w-6 h-6 rounded border flex items-center justify-center ${formData.riskAccepted ? 'bg-red-600 border-red-600' : 'bg-white border-gray-400'}`}>
+                    {formData.riskAccepted && <CheckCircle className="w-4 h-4 text-white" />}
+                  </div>
                   <span className="font-bold text-red-700">リスク説明・了承済み（サイン代わり）</span>
-                </label>
+                </div>
               </div>
               
-              <button className="w-full py-3 bg-gray-200 text-gray-700 rounded-lg flex items-center justify-center font-bold hover:bg-gray-300 transition active:scale-95">
-                <Camera className="mr-2 w-5 h-5" /> 衣類・シミの写真を撮影
-              </button>
+              {/* カメラ機能エリア */}
+              <div className="space-y-2">
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  capture="environment" 
+                  ref={fileInputRef} 
+                  onChange={handleFileChange} 
+                  className="hidden" 
+                />
+                
+                {!photo ? (
+                  <button 
+                    onClick={handleCameraClick}
+                    className="w-full py-4 bg-gray-200 text-gray-700 rounded-lg flex items-center justify-center font-bold hover:bg-gray-300 transition active:scale-95 shadow-sm border border-gray-300"
+                  >
+                    <Camera className="mr-2 w-6 h-6" /> 衣類・シミの写真を撮影
+                  </button>
+                ) : (
+                  <div className="relative w-full rounded-lg overflow-hidden border border-gray-300 shadow-md">
+                    <img src={photo} alt="撮影画像" className="w-full h-auto max-h-64 object-cover" />
+                    <button 
+                      onClick={() => setPhoto(null)}
+                      className="absolute top-2 right-2 bg-black/50 text-white p-2 rounded-full hover:bg-black/70"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                    <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs p-1 text-center">
+                      撮影済み
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </Card>
         </div>
 
-        {/* 右カラム：工場指示・仕上げ (Factory) */}
+        {/* 右カラム：工場指示・仕上げ */}
         <div className="space-y-6">
           <Card title="3. 工場指示 (Instruction)" icon={Scissors}>
             <div className="space-y-4">
@@ -175,7 +227,7 @@ export default function App() {
                   {['スタンダード', 'デラックス', 'ウェット'].map(course => (
                     <button
                       key={course}
-                      onClick={() => setFormData({...formData, processInstruction: course})}
+                      onClick={() => setFormData(prev => ({...prev, processInstruction: course}))}
                       className={`p-2 rounded border text-center font-bold text-sm transition-all ${
                         formData.processInstruction === course 
                           ? 'bg-blue-600 text-white border-blue-700 shadow-md ring-2 ring-blue-300 ring-offset-1' 
@@ -192,20 +244,18 @@ export default function App() {
                 <label className="block text-sm font-bold mb-1 text-gray-600">前処理・洗い指示</label>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   {['エリ・ソデ重点', '油性処理', '漂白処理', 'ネット必須'].map((treatment) => (
-                    <label 
+                    <div 
                       key={treatment}
-                      className={`flex items-center p-2 border rounded cursor-pointer transition-colors ${
+                      onClick={() => handleCheck('specialTreatments', treatment)}
+                      className={`flex items-center p-2 border rounded cursor-pointer transition-colors select-none ${
                         formData.specialTreatments.includes(treatment) ? 'bg-blue-50 border-blue-300' : 'bg-white hover:bg-gray-50'
                       } ${treatment === 'ネット必須' ? 'text-red-600 font-bold' : ''}`}
                     >
-                      <input 
-                        type="checkbox" 
-                        className="mr-2 rounded text-blue-600 focus:ring-blue-500" 
-                        checked={formData.specialTreatments.includes(treatment)}
-                        onChange={() => handleCheck('specialTreatments', treatment)}
-                      /> 
+                      <div className={`w-4 h-4 mr-2 rounded border flex items-center justify-center ${formData.specialTreatments.includes(treatment) ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-400'}`}>
+                         {formData.specialTreatments.includes(treatment) && <CheckCircle className="w-3 h-3 text-white" />}
+                      </div>
                       {treatment}
-                    </label>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -256,14 +306,25 @@ export default function App() {
           </Card>
 
           {/* アクションボタン */}
-          <div className="flex gap-4 mt-8 pb-4">
-            <button className="flex-1 py-4 bg-gray-600 text-white rounded-lg shadow-lg font-bold text-lg flex items-center justify-center hover:bg-gray-700 transition active:scale-95">
+          <div className="flex gap-4 mt-8 pb-8">
+            <button 
+              className="flex-1 py-4 bg-gray-600 text-white rounded-lg shadow-lg font-bold text-lg flex items-center justify-center hover:bg-gray-700 transition active:scale-95"
+              onClick={() => alert("タグを印刷します（デモ）")}
+            >
               <Printer className="mr-2" /> タグ発行
             </button>
             <button 
               className="flex-1 py-4 bg-blue-600 text-white rounded-lg shadow-lg font-bold text-lg flex items-center justify-center hover:bg-blue-700 transition active:scale-95"
               onClick={() => {
-                alert("データを保存しました\n" + JSON.stringify(formData, null, 2));
+                const message = `
+【保存完了】
+管理No: ${formData.manageNo}
+お名前: ${formData.customerName}
+アイテム: ${formData.itemType}
+コース: ${formData.processInstruction}
+写真: ${photo ? 'あり' : 'なし'}
+                `;
+                alert(message);
               }}
             >
               <Save className="mr-2" /> カルテ保存
@@ -274,4 +335,4 @@ export default function App() {
       </div>
     </div>
   );
-}   
+}
