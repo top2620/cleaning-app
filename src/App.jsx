@@ -1,7 +1,40 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Save, Camera, Printer, CheckCircle, AlertTriangle, User, Scissors, Shirt, X, Trash2, History, FileText, Check, ChevronRight, RefreshCw } from 'lucide-react';
+import { Save, Camera, Printer, CheckCircle, AlertTriangle, User, Scissors, Shirt, X, Trash2, History, FileText, Check, ChevronRight, RefreshCw, Cloud, CloudOff } from 'lucide-react';
 
-// カードコンポーネント（デザイン強化）
+// ★重要: ここにFirebaseを使うための部品を読み込みます
+import { initializeApp } from "firebase/app";
+import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, serverTimestamp } from "firebase/firestore";
+
+// =================================================================
+// ★STEP 1: Firebaseの設定情報（ここをご自身のものに書き換えてください）
+// Firebaseコンソール (https://console.firebase.google.com/) で取得できます
+// =================================================================
+const firebaseConfig = {
+  // ↓↓↓ ここをご自身のプロジェクトのキーに書き換えてください ↓↓↓
+  apiKey: "AIzaSyBt3YJKQwdK-DqEV7rh3Mlh4BVOGa3Tw2s",
+  authDomain: "my-cleaning-app-adf6a.firebaseapp.com",
+  projectId: "my-cleaning-app-adf6a",
+  storageBucket: "my-cleaning-app-adf6a.firebasestorage.app",
+  messagingSenderId: "1086144954064",
+  appId: "1:1086144954064:web:f927f4e0a725a6848928d5"
+  // ↑↑↑ ここまで ↑↑↑
+};
+
+// Firebaseの初期化（設定がまだ空の場合はエラーにならないようにする）
+let db;
+try {
+  // ダミーの設定のままなら初期化しない
+  if (firebaseConfig.apiKey !== "AIzaSy...") {
+    const app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+  }
+} catch (e) {
+  console.error("Firebase初期化エラー:", e);
+}
+
+// ------------------------------------------------------------------
+
+// カードコンポーネント
 const Card = ({ children, title, icon: Icon, color = "bg-white", headerColor = "bg-gray-50" }) => (
   <div className={`mb-6 rounded-xl shadow-sm overflow-hidden border border-gray-200 ${color} transition-shadow hover:shadow-md`}>
     <div className={`${headerColor} px-5 py-4 border-b border-gray-200 flex items-center`}>
@@ -40,7 +73,6 @@ const SelectButton = ({ selected, onClick, label, subLabel }) => (
 );
 
 export default function App() {
-  // 初期データのテンプレート
   const initialData = {
     manageNo: "", 
     customerName: "",
@@ -56,21 +88,39 @@ export default function App() {
     finalMessage: ""
   };
 
-  // 今入力中のデータ
   const [formData, setFormData] = useState({
     ...initialData,
     manageNo: `2023${new Date().getMonth()+1}${new Date().getDate()}-001`
   });
 
   const [photo, setPhoto] = useState(null);
-  
-  // 保存済みリスト
-  const [historyList, setHistoryList] = useState(() => {
-    const savedList = localStorage.getItem('cleaning-karte-history');
-    return savedList ? JSON.parse(savedList) : [];
-  });
-
+  const [historyList, setHistoryList] = useState([]);
+  const [isOnline, setIsOnline] = useState(false); // データベース接続状態
   const fileInputRef = useRef(null);
+
+  // ★データベースからデータを読み込む（リアルタイム同期）
+  useEffect(() => {
+    if (!db) return; // Firebase設定がまだの場合は何もしない
+
+    setIsOnline(true);
+    // 'kartes' というコレクション（箱）からデータを取得
+    // 日付順（新しい順）に並べ替え
+    const q = query(collection(db, "kartes"), orderBy("createdAt", "desc"));
+    
+    // データが変わるたびに自動更新
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const list = [];
+      querySnapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() });
+      });
+      setHistoryList(list);
+    }, (error) => {
+      console.error("データ取得エラー:", error);
+      setIsOnline(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -88,40 +138,67 @@ export default function App() {
   };
 
   const handleCameraClick = () => fileInputRef.current.click();
-  const handleFileChange = (e) => {
+  
+  // 写真の圧縮処理（データベース容量節約のため）
+  const resizeImage = (file) => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 800; // 横幅を800pxに制限
+          const scaleSize = MAX_WIDTH / img.width;
+          canvas.width = MAX_WIDTH;
+          canvas.height = img.height * scaleSize;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL(file.type, 0.7)); // 画質70%で圧縮
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleFileChange = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => setPhoto(reader.result);
-      reader.readAsDataURL(file);
+      // 写真を圧縮してからセット
+      const resizedPhoto = await resizeImage(file);
+      setPhoto(resizedPhoto);
     }
   };
 
-  const handleSave = () => {
+  // ★データを保存する
+  const handleSave = async () => {
     if (!formData.customerName) {
       alert("お客様名を入力してください");
       return;
     }
 
-    const newRecord = {
-      id: Date.now(),
-      saveDate: new Date().toLocaleString(),
-      ...formData,
-      photoData: photo
-    };
+    if (!db) {
+      alert("Firebaseの設定がまだ行われていません。\nコード内の 'firebaseConfig' を設定してください。");
+      return;
+    }
 
-    const updatedList = [newRecord, ...historyList];
-    setHistoryList(updatedList);
-    
     try {
-      localStorage.setItem('cleaning-karte-history', JSON.stringify(updatedList));
-      alert("保存しました！\n画面下のリストに追加されました。");
+      // データベースに追加
+      await addDoc(collection(db, "kartes"), {
+        ...formData,
+        photoData: photo, // 写真データ
+        saveDate: new Date().toLocaleString(),
+        createdAt: serverTimestamp() // サーバー側の日時
+      });
+
+      alert("クラウドデータベースに保存しました！\n他の端末からも確認できます。");
       
-      if(window.confirm("続けて次のお客様を入力しますか？\n（入力欄をクリアします）")) {
+      if(window.confirm("続けて次のお客様を入力しますか？")) {
         handleReset();
       }
     } catch (e) {
-      alert("保存に失敗しました。写真のサイズが大きすぎる可能性があります。");
+      console.error("保存エラー:", e);
+      alert("保存に失敗しました。\n" + e.message);
     }
   };
 
@@ -137,17 +214,21 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleDelete = (id) => {
-    if (window.confirm("このデータを削除してもよろしいですか？")) {
-      const updatedList = historyList.filter(item => item.id !== id);
-      setHistoryList(updatedList);
-      localStorage.setItem('cleaning-karte-history', JSON.stringify(updatedList));
+  // ★データを削除する
+  const handleDelete = async (id) => {
+    if (!db) return;
+    if (window.confirm("本当にこのデータを削除しますか？\nクラウド上から完全に消えます。")) {
+      try {
+        await deleteDoc(doc(db, "kartes", id));
+      } catch (e) {
+        alert("削除に失敗しました");
+      }
     }
   };
 
   const handleLoad = (record) => {
     if (window.confirm("このデータを読み込んで編集しますか？\n（現在の入力内容は消えます）")) {
-      const { id, saveDate, photoData, ...rest } = record;
+      const { id, saveDate, photoData, createdAt, ...rest } = record;
       setFormData(rest);
       setPhoto(photoData);
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -164,7 +245,13 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-xl md:text-2xl font-bold tracking-tight">Clean Master Tablet</h1>
-            <p className="text-xs md:text-sm font-medium text-blue-100 opacity-90">受付・工場連携システム</p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs md:text-sm font-medium text-blue-100 opacity-90">受付・工場連携システム</p>
+              {/* 接続状態の表示 */}
+              <span className={`text-[10px] px-2 py-0.5 rounded-full flex items-center ${isOnline ? 'bg-green-500/30 text-green-100' : 'bg-red-500/30 text-red-100'}`}>
+                {isOnline ? <><Cloud className="w-3 h-3 mr-1" /> Cloud Online</> : <><CloudOff className="w-3 h-3 mr-1" /> Offline / Config Needed</>}
+              </span>
+            </div>
           </div>
         </div>
         <div className="text-right">
@@ -180,6 +267,23 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {/* 設定未完了時のアラート */}
+      {!db && (
+        <div className="max-w-6xl mx-auto mb-6 bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded shadow-sm">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <AlertTriangle className="h-5 w-5 text-yellow-400" />
+            </div>
+            <div className="ml-3">
+              <p className="text-sm text-yellow-700">
+                <span className="font-bold">データベースの設定が必要です：</span>
+                まだFirebaseの設定が行われていません。コード内の <code>firebaseConfig</code> を書き換えてください。
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-6xl mx-auto">
         
@@ -435,10 +539,13 @@ export default function App() {
           {/* アクションボタン */}
           <div className="flex flex-col gap-3 mt-4">
             <button 
-              className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl shadow-lg font-bold text-lg flex items-center justify-center hover:from-blue-700 hover:to-indigo-700 transition-all active:scale-[0.98] active:shadow-none"
+              className={`w-full py-4 rounded-xl shadow-lg font-bold text-lg flex items-center justify-center transition-all active:scale-[0.98] active:shadow-none
+                ${isOnline ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}
+              `}
               onClick={handleSave}
+              disabled={!isOnline}
             >
-              <Save className="mr-2 w-6 h-6" /> この内容でカルテ保存
+              <Save className="mr-2 w-6 h-6" /> {isOnline ? 'クラウドにカルテ保存' : 'DB設定が必要です'}
             </button>
             <button 
               className="w-full py-3 bg-gray-700 text-white rounded-xl shadow-md font-bold text-md flex items-center justify-center hover:bg-gray-800 transition-all active:scale-[0.98]"
@@ -451,11 +558,11 @@ export default function App() {
         </div>
       </div>
 
-      {/* ★保存済みカルテ一覧エリア */}
+      {/* ★保存済みカルテ一覧エリア（データベース直結） */}
       <div className="max-w-6xl mx-auto mt-16">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-bold text-gray-700 flex items-center">
-            <History className="mr-2 text-blue-600" /> 保存済みカルテ一覧 
+            <History className="mr-2 text-blue-600" /> クラウド保存済みデータ
             <span className="ml-2 bg-gray-200 text-gray-700 text-xs px-2 py-1 rounded-full">{historyList.length}</span>
           </h2>
         </div>
@@ -463,7 +570,7 @@ export default function App() {
         {historyList.length === 0 ? (
           <div className="bg-white p-12 rounded-2xl text-center text-gray-400 border-2 border-dashed border-gray-300 flex flex-col items-center">
             <History className="w-12 h-12 mb-3 opacity-20" />
-            <p>保存されたデータはありません</p>
+            <p>{isOnline ? "データはまだありません" : "データベースに接続されていません"}</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
