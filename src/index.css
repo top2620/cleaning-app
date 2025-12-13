@@ -2,3 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
+/* アプリ全体の背景色を薄いグレーに設定して見やすくします */
+body {
+  background-color: #f3f4f6;
+}
