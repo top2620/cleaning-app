@@ -92,12 +92,12 @@ export default function App() {
   const [formData, setFormData] = useState(initialData);
   const [photos, setPhotos] = useState([]); 
   const [previewPhoto, setPreviewPhoto] = useState(null); 
-  const [editingId, setEditingId] = useState(null); // ★編集中のドキュメントIDを管理
+  const [editingId, setEditingId] = useState(null);
   
   const [historyList, setHistoryList] = useState([]);
   const [isOnline, setIsOnline] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const fileInputRef = useRef(null);
+  // useRefは使わず、labelタグでinputを制御します
 
   // データベースからデータを読み込む
   useEffect(() => {
@@ -123,9 +123,8 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [editingId]); // editingIdが変わったときには採番しない
+  }, [editingId]);
 
-  // 管理番号の自動生成ロジック
   const generateManageNo = (list) => {
     const todayStr = getTodayStr();
     const todaysCount = list.filter(item => item.manageNo && item.manageNo.startsWith(todayStr)).length;
@@ -137,7 +136,6 @@ export default function App() {
     }));
   };
 
-  // 検索フィルタリング
   const filteredList = historyList.filter((record) => {
     const searchLower = searchQuery.toLowerCase();
     const nameMatch = record.customerName?.toLowerCase().includes(searchLower);
@@ -160,14 +158,6 @@ export default function App() {
         : [...currentArray, value];
       return { ...prev, [field]: newArray };
     });
-  };
-
-  const handleCameraClick = () => {
-    if (photos.length >= 3) {
-      alert("写真は3枚までです");
-      return;
-    }
-    fileInputRef.current.click();
   };
   
   const resizeImage = (file) => {
@@ -201,6 +191,11 @@ export default function App() {
   const handleFileChange = async (e) => {
     const file = e.target.files[0];
     if (file) {
+      if (photos.length >= 3) {
+        alert("写真は3枚までです");
+        e.target.value = '';
+        return;
+      }
       try {
         const resizedPhoto = await resizeImage(file);
         setPhotos(prev => [...prev, resizedPhoto]); 
@@ -215,7 +210,6 @@ export default function App() {
     setPhotos(prev => prev.filter((_, i) => i !== index));
   };
 
-  // ★データを保存する（新規作成と上書き保存を自動判定）
   const handleSave = async () => {
     if (!formData.customerName) {
       alert("お客様名を入力してください");
@@ -229,25 +223,22 @@ export default function App() {
 
     try {
       if (editingId) {
-        // ★上書き保存（Update）
         await updateDoc(doc(db, "kartes", editingId), {
           ...formData,
           photos: photos,
-          updatedAt: serverTimestamp() // 更新日時
+          updatedAt: serverTimestamp()
         });
         alert("データを上書き保存しました！");
       } else {
-        // ★新規保存（Add）
         await addDoc(collection(db, "kartes"), {
           ...formData,
           photos: photos,
           saveDate: new Date().toLocaleString(),
-          createdAt: serverTimestamp() // 作成日時
+          createdAt: serverTimestamp()
         });
         alert("新しく保存しました！");
       }
       
-      // 保存後はリセットするか確認
       if(window.confirm("続けて新規入力しますか？\n（キャンセルすると編集画面のまま残ります）")) {
         handleReset();
       }
@@ -258,7 +249,7 @@ export default function App() {
   };
 
   const handleReset = () => {
-    setEditingId(null); // 編集モード解除
+    setEditingId(null);
     setFormData(initialData);
     setPhotos([]);
     generateManageNo(historyList);
@@ -270,7 +261,6 @@ export default function App() {
     if (window.confirm("本当にこのデータを削除しますか？\nクラウド上から完全に消えます。")) {
       try {
         await deleteDoc(doc(db, "kartes", id));
-        // もし編集中のデータを削除した場合はリセット
         if (id === editingId) handleReset();
       } catch (e) {
         alert("削除に失敗しました");
@@ -282,7 +272,7 @@ export default function App() {
     if (window.confirm("このデータを読み込んで編集しますか？\n（現在の入力内容は消えます）")) {
       const { id, saveDate, photoData, photos: savedPhotos, createdAt, ...rest } = record;
       
-      setEditingId(id); // ★編集モードにする
+      setEditingId(id);
       setFormData(rest);
       
       if (savedPhotos && Array.isArray(savedPhotos)) {
@@ -297,18 +287,21 @@ export default function App() {
     }
   };
 
-  // ★印刷機能
+  // ★印刷実行機能
   const handlePrint = () => {
-    window.print();
+    // 印刷ダイアログを呼び出す
+    setTimeout(() => {
+      window.print();
+    }, 100);
   };
 
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-gray-800">
       
       {/* =================================================================
-          ★印刷用レイアウト（通常は非表示 print:block で表示）
+          ★印刷用レイアウト（print:blockで表示、画面上は非表示）
          ================================================================= */}
-      <div className="hidden print:block p-8 bg-white text-black">
+      <div className="hidden print:block p-8 bg-white text-black w-full h-full">
         <h1 className="text-3xl font-bold mb-2 border-b-2 border-black pb-2">クリーニング受付カルテ</h1>
         <div className="flex justify-between mb-6">
           <div>
@@ -363,11 +356,10 @@ export default function App() {
           Clean Master Tablet System
         </div>
       </div>
-      {/* 印刷用レイアウト終了 */}
 
 
       {/* =================================================================
-          ★通常画面（印刷時は非表示 print:hidden）
+          ★通常画面
          ================================================================= */}
       <div className="print:hidden p-4 pb-32">
         {/* 拡大表示用モーダル */}
@@ -570,16 +562,16 @@ export default function App() {
                   </div>
                 </div>
                 
-                {/* カメラ機能エリア */}
+                {/* カメラ機能エリア（スマホ対応・label使用） */}
                 <div className="space-y-3">
-                  {/* ★修正: スマホでのカメラ起動をスムーズにする設定 */}
+                  {/* inputを完全に隠すのではなく、透明にして背面に配置する（安定性のため） */}
                   <input 
+                    id="camera-input"
                     type="file" 
                     accept="image/*" 
                     capture="environment" 
-                    ref={fileInputRef} 
                     onChange={handleFileChange} 
-                    className="hidden" 
+                    className="absolute opacity-0 pointer-events-none"
                   />
                   
                   {/* 写真リスト表示 */}
@@ -610,17 +602,17 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* 撮影ボタン */}
+                  {/* 撮影ボタン（labelタグを使用） */}
                   {photos.length < 3 && (
-                    <button 
-                      onClick={handleCameraClick}
-                      className="w-full py-4 bg-gray-100 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl flex flex-col items-center justify-center font-bold hover:bg-gray-200 hover:border-gray-400 transition-all active:scale-[0.98]"
+                    <label 
+                      htmlFor="camera-input"
+                      className="w-full py-4 bg-gray-100 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl flex flex-col items-center justify-center font-bold hover:bg-gray-200 hover:border-gray-400 transition-all active:scale-[0.98] cursor-pointer"
                     >
                       <div className="flex items-center">
                         <Camera className="w-5 h-5 mr-2" />
                         <span>写真を追加 ({photos.length}/3)</span>
                       </div>
-                    </button>
+                    </label>
                   )}
                 </div>
               </div>
