@@ -1,33 +1,27 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Save, Camera, Printer, CheckCircle, AlertTriangle, User, Scissors, Shirt, X, Trash2, History, FileText, Check, ChevronRight, RefreshCw, Cloud, CloudOff } from 'lucide-react';
+import { Save, Camera, Printer, CheckCircle, AlertTriangle, User, Scissors, Shirt, X, Trash2, History, FileText, Check, ChevronRight, RefreshCw, Cloud, CloudOff, Search, Tag, Maximize2, Image as ImageIcon } from 'lucide-react';
 
 // ★重要: ここにFirebaseを使うための部品を読み込みます
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, serverTimestamp } from "firebase/firestore";
 
 // =================================================================
-// ★STEP 1: Firebaseの設定情報（ここをご自身のものに書き換えてください）
-// Firebaseコンソール (https://console.firebase.google.com/) で取得できます
+// ★STEP 1: Firebaseの設定情報
 // =================================================================
 const firebaseConfig = {
-  // ↓↓↓ ここをご自身のプロジェクトのキーに書き換えてください ↓↓↓
   apiKey: "AIzaSyBt3YJKQwdK-DqEV7rh3Mlh4BVOGa3Tw2s",
   authDomain: "my-cleaning-app-adf6a.firebaseapp.com",
   projectId: "my-cleaning-app-adf6a",
   storageBucket: "my-cleaning-app-adf6a.firebasestorage.app",
   messagingSenderId: "1086144954064",
   appId: "1:1086144954064:web:f927f4e0a725a6848928d5"
-  // ↑↑↑ ここまで ↑↑↑
 };
 
-// Firebaseの初期化（設定がまだ空の場合はエラーにならないようにする）
+// Firebaseの初期化
 let db;
 try {
-  // ダミーの設定のままなら初期化しない
-  if (firebaseConfig.apiKey !== "AIzaSy...") {
-    const app = initializeApp(firebaseConfig);
-    db = getFirestore(app);
-  }
+  const app = initializeApp(firebaseConfig);
+  db = getFirestore(app);
 } catch (e) {
   console.error("Firebase初期化エラー:", e);
 }
@@ -72,9 +66,16 @@ const SelectButton = ({ selected, onClick, label, subLabel }) => (
   </button>
 );
 
+// 今日の日付を取得する関数 (YYYYMMDD形式)
+const getTodayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+};
+
 export default function App() {
   const initialData = {
     manageNo: "", 
+    tagNumber: "", 
     customerName: "",
     itemType: "スーツ上",
     brand: "",
@@ -88,32 +89,33 @@ export default function App() {
     finalMessage: ""
   };
 
-  const [formData, setFormData] = useState({
-    ...initialData,
-    manageNo: `2023${new Date().getMonth()+1}${new Date().getDate()}-001`
-  });
-
-  const [photo, setPhoto] = useState(null);
+  const [formData, setFormData] = useState(initialData);
+  const [photos, setPhotos] = useState([]); // 写真を配列で管理（最大3枚）
+  const [previewPhoto, setPreviewPhoto] = useState(null); // 拡大表示中の写真
+  
   const [historyList, setHistoryList] = useState([]);
-  const [isOnline, setIsOnline] = useState(false); // データベース接続状態
+  const [isOnline, setIsOnline] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const fileInputRef = useRef(null);
 
-  // ★データベースからデータを読み込む（リアルタイム同期）
+  // データベースからデータを読み込む
   useEffect(() => {
-    if (!db) return; // Firebase設定がまだの場合は何もしない
+    if (!db) return;
 
     setIsOnline(true);
-    // 'kartes' というコレクション（箱）からデータを取得
-    // 日付順（新しい順）に並べ替え
     const q = query(collection(db, "kartes"), orderBy("createdAt", "desc"));
     
-    // データが変わるたびに自動更新
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const list = [];
       querySnapshot.forEach((doc) => {
         list.push({ id: doc.id, ...doc.data() });
       });
       setHistoryList(list);
+      
+      // データ読み込み完了時に、まだ管理番号がなければ自動採番する
+      if (!formData.manageNo) {
+        generateManageNo(list);
+      }
     }, (error) => {
       console.error("データ取得エラー:", error);
       setIsOnline(false);
@@ -121,6 +123,29 @@ export default function App() {
 
     return () => unsubscribe();
   }, []);
+
+  // 管理番号の自動生成ロジック
+  const generateManageNo = (list) => {
+    const todayStr = getTodayStr();
+    // 今日の日付で始まるカルテを数える
+    const todaysCount = list.filter(item => item.manageNo && item.manageNo.startsWith(todayStr)).length;
+    const nextNum = String(todaysCount + 1).padStart(3, '0');
+    
+    setFormData(prev => ({
+      ...prev,
+      manageNo: `${todayStr}-${nextNum}`
+    }));
+  };
+
+  // 検索フィルタリング
+  const filteredList = historyList.filter((record) => {
+    const searchLower = searchQuery.toLowerCase();
+    const nameMatch = record.customerName?.toLowerCase().includes(searchLower);
+    const tagMatch = record.tagNumber?.toLowerCase().includes(searchLower);
+    const manageNoMatch = record.manageNo?.toLowerCase().includes(searchLower);
+    
+    return nameMatch || tagMatch || manageNoMatch;
+  });
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -137,9 +162,14 @@ export default function App() {
     });
   };
 
-  const handleCameraClick = () => fileInputRef.current.click();
+  const handleCameraClick = () => {
+    if (photos.length >= 3) {
+      alert("写真は3枚までです");
+      return;
+    }
+    fileInputRef.current.click();
+  };
   
-  // 写真の圧縮処理（データベース容量節約のため）
   const resizeImage = (file) => {
     return new Promise((resolve) => {
       const reader = new FileReader();
@@ -147,13 +177,20 @@ export default function App() {
         const img = new Image();
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 800; // 横幅を800pxに制限
+          const MAX_WIDTH = 800; 
           const scaleSize = MAX_WIDTH / img.width;
-          canvas.width = MAX_WIDTH;
-          canvas.height = img.height * scaleSize;
+          
+          if (img.width > MAX_WIDTH) {
+             canvas.width = MAX_WIDTH;
+             canvas.height = img.height * scaleSize;
+          } else {
+             canvas.width = img.width;
+             canvas.height = img.height;
+          }
+          
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          resolve(canvas.toDataURL(file.type, 0.7)); // 画質70%で圧縮
+          resolve(canvas.toDataURL('image/jpeg', 0.7)); 
         };
         img.src = e.target.result;
       };
@@ -164,13 +201,21 @@ export default function App() {
   const handleFileChange = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      // 写真を圧縮してからセット
-      const resizedPhoto = await resizeImage(file);
-      setPhoto(resizedPhoto);
+      try {
+        const resizedPhoto = await resizeImage(file);
+        setPhotos(prev => [...prev, resizedPhoto]); // 配列に追加
+      } catch (error) {
+        alert("写真の処理に失敗しました");
+      }
     }
+    // 同じファイルを選べるようにリセット
+    e.target.value = '';
   };
 
-  // ★データを保存する
+  const removePhoto = (index) => {
+    setPhotos(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleSave = async () => {
     if (!formData.customerName) {
       alert("お客様名を入力してください");
@@ -178,20 +223,19 @@ export default function App() {
     }
 
     if (!db) {
-      alert("Firebaseの設定がまだ行われていません。\nコード内の 'firebaseConfig' を設定してください。");
+      alert("【設定が必要です】\nコード内の 'firebaseConfig' の部分をご自身のキーに書き換えてください。");
       return;
     }
 
     try {
-      // データベースに追加
       await addDoc(collection(db, "kartes"), {
         ...formData,
-        photoData: photo, // 写真データ
+        photos: photos, // 写真配列を保存
         saveDate: new Date().toLocaleString(),
-        createdAt: serverTimestamp() // サーバー側の日時
+        createdAt: serverTimestamp()
       });
 
-      alert("クラウドデータベースに保存しました！\n他の端末からも確認できます。");
+      alert("クラウドに保存しました！");
       
       if(window.confirm("続けて次のお客様を入力しますか？")) {
         handleReset();
@@ -203,18 +247,12 @@ export default function App() {
   };
 
   const handleReset = () => {
-    const currentNo = formData.manageNo.split('-');
-    let nextNo = formData.manageNo;
-    if (currentNo.length > 1) {
-      const num = parseInt(currentNo[1]) + 1;
-      nextNo = `${currentNo[0]}-${String(num).padStart(3, '0')}`;
-    }
-    setFormData({ ...initialData, manageNo: nextNo });
-    setPhoto(null);
+    setFormData(initialData);
+    setPhotos([]);
+    generateManageNo(historyList); // 最新の番号を再計算
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // ★データを削除する
   const handleDelete = async (id) => {
     if (!db) return;
     if (window.confirm("本当にこのデータを削除しますか？\nクラウド上から完全に消えます。")) {
@@ -228,15 +266,47 @@ export default function App() {
 
   const handleLoad = (record) => {
     if (window.confirm("このデータを読み込んで編集しますか？\n（現在の入力内容は消えます）")) {
-      const { id, saveDate, photoData, createdAt, ...rest } = record;
+      // 古いデータ形式(photoData)と新しい形式(photos)の両方に対応
+      const { id, saveDate, photoData, photos: savedPhotos, createdAt, ...rest } = record;
       setFormData(rest);
-      setPhoto(photoData);
+      
+      if (savedPhotos && Array.isArray(savedPhotos)) {
+        setPhotos(savedPhotos);
+      } else if (photoData) {
+        setPhotos([photoData]); // 古いデータは1枚として扱う
+      } else {
+        setPhotos([]);
+      }
+      
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
   return (
     <div className="min-h-screen bg-slate-100 p-4 font-sans text-gray-800 pb-32">
+      
+      {/* 拡大表示用モーダル（写真全体を表示） */}
+      {previewPhoto && (
+        <div 
+          className="fixed inset-0 bg-black/95 z-[100] flex items-center justify-center p-4 cursor-pointer"
+          onClick={() => setPreviewPhoto(null)}
+        >
+          <div className="relative w-full h-full flex items-center justify-center">
+            <img 
+              src={previewPhoto} 
+              alt="拡大" 
+              className="max-w-full max-h-full object-contain" 
+            />
+            <button className="absolute top-4 right-4 bg-white/20 text-white p-3 rounded-full hover:bg-white/40">
+              <X className="w-8 h-8" />
+            </button>
+            <p className="absolute bottom-10 text-white text-sm bg-black/50 px-4 py-2 rounded-full">
+              タップして閉じる
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ヘッダー */}
       <header className="flex justify-between items-center mb-8 bg-gradient-to-r from-blue-700 to-indigo-800 text-white p-5 rounded-2xl shadow-lg sticky top-2 z-50 backdrop-blur-sm bg-opacity-95">
         <div className="flex items-center gap-4">
@@ -247,9 +317,8 @@ export default function App() {
             <h1 className="text-xl md:text-2xl font-bold tracking-tight">Clean Master Tablet</h1>
             <div className="flex items-center gap-2">
               <p className="text-xs md:text-sm font-medium text-blue-100 opacity-90">受付・工場連携システム</p>
-              {/* 接続状態の表示 */}
               <span className={`text-[10px] px-2 py-0.5 rounded-full flex items-center ${isOnline ? 'bg-green-500/30 text-green-100' : 'bg-red-500/30 text-red-100'}`}>
-                {isOnline ? <><Cloud className="w-3 h-3 mr-1" /> Cloud Online</> : <><CloudOff className="w-3 h-3 mr-1" /> Offline / Config Needed</>}
+                {isOnline ? <><Cloud className="w-3 h-3 mr-1" /> Cloud Online</> : <><CloudOff className="w-3 h-3 mr-1" /> Offline</>}
               </span>
             </div>
           </div>
@@ -278,7 +347,7 @@ export default function App() {
             <div className="ml-3">
               <p className="text-sm text-yellow-700">
                 <span className="font-bold">データベースの設定が必要です：</span>
-                まだFirebaseの設定が行われていません。コード内の <code>firebaseConfig</code> を書き換えてください。
+                コード内の <code>firebaseConfig</code> をご自身のキーに書き換えてください。
               </p>
             </div>
           </div>
@@ -291,19 +360,37 @@ export default function App() {
         <div className="space-y-8">
           <Card title="1. 受付情報の入力" icon={User}>
             <div className="space-y-6">
-              <div>
-                <label className="block text-sm font-bold mb-2 text-gray-700 flex items-center">
-                  お客様名 <span className="ml-2 text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">必須</span>
-                </label>
-                <input 
-                  type="text" 
-                  name="customerName"
-                  className="w-full p-4 border-2 border-gray-200 rounded-xl bg-gray-50 text-lg focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all"
-                  placeholder="例：山田 太郎 様"
-                  value={formData.customerName}
-                  onChange={handleChange}
-                />
+              
+              {/* タグ番号入力エリア */}
+              <div className="flex gap-4">
+                <div className="w-1/3">
+                  <label className="block text-sm font-bold mb-2 text-gray-700 flex items-center">
+                    <Tag className="w-4 h-4 mr-1 text-blue-600" /> タグNo.
+                  </label>
+                  <input 
+                    type="text" 
+                    name="tagNumber"
+                    className="w-full p-4 border-2 border-blue-200 rounded-xl bg-blue-50 text-xl font-bold text-blue-800 text-center focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all placeholder-blue-200"
+                    placeholder="123"
+                    value={formData.tagNumber}
+                    onChange={handleChange}
+                  />
+                </div>
+                <div className="w-2/3">
+                  <label className="block text-sm font-bold mb-2 text-gray-700 flex items-center">
+                    お客様名 <span className="ml-2 text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">必須</span>
+                  </label>
+                  <input 
+                    type="text" 
+                    name="customerName"
+                    className="w-full p-4 border-2 border-gray-200 rounded-xl bg-gray-50 text-lg focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all"
+                    placeholder="例：山田 太郎 様"
+                    value={formData.customerName}
+                    onChange={handleChange}
+                  />
+                </div>
               </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-bold mb-2 text-gray-700">アイテム</label>
@@ -315,10 +402,16 @@ export default function App() {
                   >
                     <option>ワイシャツ</option>
                     <option>スーツ上</option>
-                    <option>ズボン/スカート</option>
+                    <option>スーツ下（ズボン）</option>
+                    <option>スカート</option>
                     <option>コート</option>
                     <option>ダウン</option>
                     <option>ワンピース</option>
+                    <option>セーター・ニット</option>
+                    <option>着物・浴衣</option>
+                    <option>靴・スニーカー</option>
+                    <option>バッグ・革製品</option>
+                    <option>その他</option>
                   </select>
                 </div>
                 <div>
@@ -341,7 +434,7 @@ export default function App() {
               <div>
                 <label className="block text-sm font-bold mb-3 text-gray-700">一番の悩み（複数選択可）</label>
                 <div className="flex flex-wrap gap-3">
-                  {['シミ・汚れ', '汗・ニオイ', '黄ばみ', 'シワ', '仕上げ重視'].map(item => (
+                  {['シミ・汚れ', '汗・ニオイ', '黄ばみ', 'シワ', '仕上げ重視', '穴・ほつれ', '色落ち'].map(item => (
                     <button
                       key={item}
                       onClick={() => handleCheck('needs', item)}
@@ -394,6 +487,7 @@ export default function App() {
                 </div>
               </div>
               
+              {/* カメラ機能エリア（複数枚対応） */}
               <div className="space-y-3">
                 <input 
                   type="file" 
@@ -404,31 +498,45 @@ export default function App() {
                   className="hidden" 
                 />
                 
-                {!photo ? (
+                {/* 写真リスト表示（全体が見えるようにobject-containに変更） */}
+                {photos.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2 mb-2">
+                    {photos.map((p, index) => (
+                      <div key={index} className="relative group aspect-square bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
+                        <img 
+                          src={p} 
+                          alt={`写真 ${index + 1}`} 
+                          className="w-full h-full object-contain cursor-pointer hover:opacity-90"
+                          onClick={() => setPreviewPhoto(p)}
+                        />
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removePhoto(index);
+                          }}
+                          className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full shadow-md hover:bg-red-600"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                        <div className="absolute bottom-1 right-1 bg-black/60 rounded-full p-1 pointer-events-none">
+                          <Maximize2 className="w-3 h-3 text-white" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* 撮影ボタン（3枚未満のときだけ表示） */}
+                {photos.length < 3 && (
                   <button 
                     onClick={handleCameraClick}
-                    className="w-full py-5 bg-gray-100 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl flex flex-col items-center justify-center font-bold hover:bg-gray-200 hover:border-gray-400 transition-all active:scale-[0.98] group"
+                    className="w-full py-4 bg-gray-100 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl flex flex-col items-center justify-center font-bold hover:bg-gray-200 hover:border-gray-400 transition-all active:scale-[0.98]"
                   >
-                    <div className="bg-white p-3 rounded-full mb-2 shadow-sm group-hover:scale-110 transition-transform">
-                      <Camera className="w-6 h-6 text-gray-600" />
+                    <div className="flex items-center">
+                      <Camera className="w-5 h-5 mr-2" />
+                      <span>写真を追加 ({photos.length}/3)</span>
                     </div>
-                    <span>衣類・シミの写真を撮影</span>
                   </button>
-                ) : (
-                  <div className="relative w-full rounded-xl overflow-hidden border-2 border-gray-200 shadow-lg group">
-                    <img src={photo} alt="撮影画像" className="w-full h-auto max-h-72 object-cover" />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                       <button 
-                        onClick={() => setPhoto(null)}
-                        className="bg-white text-red-600 px-4 py-2 rounded-full font-bold shadow-lg flex items-center hover:bg-red-50"
-                      >
-                        <Trash2 className="w-4 h-4 mr-2" /> 削除して撮り直す
-                      </button>
-                    </div>
-                    <div className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded-md flex items-center">
-                      <CheckCircle className="w-3 h-3 mr-1" /> 撮影済み
-                    </div>
-                  </div>
                 )}
               </div>
             </div>
@@ -456,7 +564,7 @@ export default function App() {
               <div>
                 <label className="block text-sm font-bold mb-3 text-gray-700">前処理・洗い指示</label>
                 <div className="grid grid-cols-2 gap-3">
-                  {['エリ・ソデ重点', '油性処理', '漂白処理', 'ネット必須'].map((treatment) => (
+                  {['エリ・ソデ重点', '油性処理', '漂白処理', 'ネット必須', 'デリケート', '色止め'].map((treatment) => (
                     <div 
                       key={treatment}
                       onClick={() => handleCheck('specialTreatments', treatment)}
@@ -494,6 +602,8 @@ export default function App() {
                       <option>ハード（糊付け）</option>
                       <option>センタープレス有り</option>
                       <option>プレス無し（スチームのみ）</option>
+                      <option>たたみ仕上げ</option>
+                      <option>ハンガー仕上げ</option>
                     </select>
                     <div className="absolute right-4 top-1/2 transform -translate-y-1/2 pointer-events-none text-gray-500">
                       <ChevronRight className="w-5 h-5 rotate-90" />
@@ -517,6 +627,7 @@ export default function App() {
                       <option>良好・完了</option>
                       <option>シミ残りあり（生地保護のため中断）</option>
                       <option>再洗いが必要</option>
+                      <option>要確認（お客様へ連絡）</option>
                     </select>
                     <div className="absolute right-4 top-1/2 transform -translate-y-1/2 pointer-events-none text-green-600">
                       <ChevronRight className="w-5 h-5 rotate-90" />
@@ -558,13 +669,27 @@ export default function App() {
         </div>
       </div>
 
-      {/* ★保存済みカルテ一覧エリア（データベース直結） */}
+      {/* ★保存済みカルテ一覧エリア（検索機能付き・写真表示） */}
       <div className="max-w-6xl mx-auto mt-16">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col md:flex-row items-center justify-between mb-6 gap-4">
           <h2 className="text-xl font-bold text-gray-700 flex items-center">
             <History className="mr-2 text-blue-600" /> クラウド保存済みデータ
-            <span className="ml-2 bg-gray-200 text-gray-700 text-xs px-2 py-1 rounded-full">{historyList.length}</span>
+            <span className="ml-2 bg-gray-200 text-gray-700 text-xs px-2 py-1 rounded-full">{filteredList.length} 件</span>
           </h2>
+          
+          {/* ★検索バー */}
+          <div className="relative w-full md:w-96">
+            <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+              <Search className="w-5 h-5 text-gray-400" />
+            </div>
+            <input 
+              type="text" 
+              className="block w-full p-4 pl-10 text-sm text-gray-900 border border-gray-300 rounded-xl bg-white focus:ring-blue-500 focus:border-blue-500 shadow-sm" 
+              placeholder="お客様名、タグ番号で検索..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
         </div>
         
         {historyList.length === 0 ? (
@@ -572,21 +697,50 @@ export default function App() {
             <History className="w-12 h-12 mb-3 opacity-20" />
             <p>{isOnline ? "データはまだありません" : "データベースに接続されていません"}</p>
           </div>
+        ) : filteredList.length === 0 ? (
+           <div className="bg-white p-8 rounded-2xl text-center text-gray-400 border-2 border-dashed border-gray-300">
+            <p>検索条件に一致するカルテは見つかりませんでした</p>
+          </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {historyList.map((record) => (
+            {filteredList.map((record) => (
               <div key={record.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
                 <div className="flex justify-between items-start mb-3">
                   <div className="flex flex-col">
-                    <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Case ID</span>
-                    <span className="font-mono text-blue-600 font-bold">{record.manageNo}</span>
+                    <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Tag No.</span>
+                    <span className="font-mono text-blue-600 font-bold text-lg bg-blue-50 px-2 py-0.5 rounded inline-block w-fit">
+                      {record.tagNumber || "No Tag"}
+                    </span>
                   </div>
-                  <span className="text-xs text-gray-400 bg-gray-50 px-2 py-1 rounded">{record.saveDate}</span>
+                  <div className="text-right">
+                    <span className="text-[10px] text-gray-400 block uppercase">Case ID</span>
+                    <span className="text-xs text-gray-500 font-mono">{record.manageNo}</span>
+                  </div>
                 </div>
                 
-                <h3 className="font-bold text-xl text-gray-800 mb-1">{record.customerName || "名称未設定"} <span className="text-sm font-normal text-gray-500">様</span></h3>
+                <div className="flex items-center gap-2 mb-2">
+                   <h3 className="font-bold text-xl text-gray-800">{record.customerName || "名称未設定"} <span className="text-sm font-normal text-gray-500">様</span></h3>
+                </div>
                 
-                <div className="flex items-center gap-2 mb-4 text-sm text-gray-600">
+                {/* 履歴リストにも写真を表示 */}
+                {record.photos && record.photos.length > 0 && (
+                  <div className="flex gap-2 mb-3 overflow-x-auto pb-2">
+                    {record.photos.map((p, i) => (
+                       <img 
+                         key={i} 
+                         src={p} 
+                         alt="履歴写真" 
+                         className="w-16 h-16 object-contain bg-gray-100 rounded border border-gray-200 cursor-pointer hover:opacity-80" 
+                         onClick={(e) => { 
+                           e.stopPropagation(); 
+                           setPreviewPhoto(p); 
+                         }} 
+                       />
+                    ))}
+                  </div>
+                )}
+                
+                <div className="flex items-center gap-2 mb-4 text-sm text-gray-600 flex-wrap">
                   <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-xs font-bold">{record.itemType}</span>
                   <span className="bg-gray-100 px-2 py-0.5 rounded text-xs">{record.processInstruction}</span>
                 </div>
