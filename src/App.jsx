@@ -300,8 +300,12 @@ export default function App() {
       
       {/* =================================================================
           ★印刷用レイアウト（print:blockで表示、画面上は非表示）
+          ★ printColorAdjust: 'exact' で背景色などの印刷を強制します
          ================================================================= */}
-      <div className="hidden print:block p-8 bg-white text-black w-full h-full">
+      <div 
+        className="hidden print:block p-8 bg-white text-black w-full h-full"
+        style={{ printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}
+      >
         <h1 className="text-3xl font-bold mb-2 border-b-2 border-black pb-2">クリーニング受付カルテ</h1>
         <div className="flex justify-between mb-6">
           <div>
@@ -314,7 +318,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="border-2 border-black p-4 mb-6">
+        <div className="border-2 border-black p-4 mb-6 bg-gray-50">
           <p className="text-sm mb-1">お客様名</p>
           <p className="text-2xl font-bold">{formData.customerName} 様</p>
         </div>
@@ -333,8 +337,8 @@ export default function App() {
         <div className="mb-6">
           <span className="block text-sm font-bold border-b border-gray-400 mb-2">ご要望・指示事項</span>
           <div className="flex flex-wrap gap-2 mb-2">
-            {formData.needs.map(n => <span key={n} className="border border-black px-2 py-1 rounded">{n}</span>)}
-            {formData.specialTreatments.map(t => <span key={t} className="border border-black px-2 py-1 rounded bg-gray-100">{t}</span>)}
+            {formData.needs.map(n => <span key={n} className="border border-black px-2 py-1 rounded bg-red-50 font-bold">{n}</span>)}
+            {formData.specialTreatments.map(t => <span key={t} className="border border-black px-2 py-1 rounded bg-blue-50 font-bold">{t}</span>)}
           </div>
           <div className="border border-gray-300 p-3 min-h-[100px] whitespace-pre-wrap">
             {formData.stainLocation}
@@ -346,7 +350,7 @@ export default function App() {
             <p className="text-sm font-bold mb-2">記録写真</p>
             <div className="flex gap-4">
               {photos.map((p, i) => (
-                <img key={i} src={p} alt="print" className="w-1/3 h-48 object-contain border border-gray-300" />
+                <img key={i} src={p} alt="print" className="w-1/3 h-48 object-contain border border-gray-300 bg-gray-100" />
               ))}
             </div>
           </div>
