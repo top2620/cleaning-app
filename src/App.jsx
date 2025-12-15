@@ -6,7 +6,7 @@ import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, deleteDoc, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp } from "firebase/firestore";
 
 // =================================================================
-// ★STEP 1: Firebaseの設定情報
+// ★STEP 1: Firebaseの設定情報（あなたのキーを設定済みです）
 // =================================================================
 const firebaseConfig = {
   apiKey: "AIzaSyBt3YJKQwdK-DqEV7rh3Mlh4BVOGa3Tw2s",
@@ -98,13 +98,13 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   
-  // 音声入力用の状態
+  // 音声入力用
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef(null);
 
   const fileInputRef = useRef(null);
 
-  // データベースからデータを読み込む
+  // データベース読み込み
   useEffect(() => {
     if (!db) return;
 
@@ -118,6 +118,7 @@ export default function App() {
       });
       setHistoryList(list);
       
+      // 新規作成モードなら自動採番
       if (!formData.manageNo && !editingId) {
         generateManageNo(list);
       }
@@ -164,26 +165,23 @@ export default function App() {
     });
   };
 
-  // ★音声入力機能
+  // 音声入力機能
   const handleVoiceInput = () => {
-    // ブラウザが対応しているか確認
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       alert("お使いのブラウザは音声入力に対応していません。");
       return;
     }
 
-    // すでに聞き取り中なら停止
     if (isListening) {
       recognitionRef.current?.stop();
       setIsListening(false);
       return;
     }
 
-    // 音声認識を開始
     const recognition = new SpeechRecognition();
     recognition.lang = 'ja-JP';
-    recognition.interimResults = false; // 確定した結果のみ取得
+    recognition.interimResults = false;
 
     recognition.onstart = () => setIsListening(true);
     
@@ -196,16 +194,13 @@ export default function App() {
     };
 
     recognition.onend = () => setIsListening(false);
-    
-    recognition.onerror = (event) => {
-      console.error("Speech recognition error", event.error);
-      setIsListening(false);
-    };
+    recognition.onerror = () => setIsListening(false);
 
     recognitionRef.current = recognition;
     recognition.start();
   };
   
+  // カメラ機能
   const handleCameraClick = () => {
     if (photos.length >= 3) {
       alert("写真は3枚までです");
@@ -264,6 +259,7 @@ export default function App() {
     setPhotos(prev => prev.filter((_, i) => i !== index));
   };
 
+  // 保存機能
   const handleSave = async () => {
     if (!formData.customerName) {
       alert("お客様名を入力してください");
@@ -271,7 +267,7 @@ export default function App() {
     }
 
     if (!db) {
-      alert("【設定が必要です】\nFirebaseの設定がまだです。");
+      alert("【設定が必要です】\nコード内の 'firebaseConfig' の部分をご自身のキーに書き換えてください。");
       return;
     }
 
@@ -325,7 +321,6 @@ export default function App() {
   const handleLoad = (record) => {
     if (window.confirm("このデータを読み込んで編集しますか？\n（現在の入力内容は消えます）")) {
       const { id, saveDate, photoData, photos: savedPhotos, createdAt, ...rest } = record;
-      
       setEditingId(id);
       setFormData(rest);
       
@@ -336,11 +331,11 @@ export default function App() {
       } else {
         setPhotos([]);
       }
-      
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
+  // 印刷機能
   const handlePrint = () => {
     setTimeout(() => {
       window.print();
@@ -351,7 +346,7 @@ export default function App() {
     <div className="min-h-screen bg-slate-100 font-sans text-gray-800">
       
       {/* =================================================================
-          ★印刷用レイアウト
+          ★印刷用レイアウト（背景色なども強制的に印刷する設定）
          ================================================================= */}
       <div 
         className="hidden print:block p-8 bg-white text-black w-full h-full"
@@ -583,7 +578,7 @@ export default function App() {
                 </div>
                 
                 <div>
-                  {/* ★音声入力ボタンを追加 */}
+                  {/* 音声入力ボタン */}
                   <label className="block text-sm font-bold mb-2 text-gray-700 flex justify-between items-center">
                     <span>シミ・汚れの場所/詳細</span>
                     <button
