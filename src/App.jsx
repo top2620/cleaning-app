@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Save, Camera, Printer, CheckCircle, AlertTriangle, User, Scissors, Shirt, X, Trash2, History, FileText, Check, ChevronRight, RefreshCw, Cloud, CloudOff, Search, Tag, Maximize2, Image as ImageIcon } from 'lucide-react';
+import { Save, Camera, Printer, CheckCircle, AlertTriangle, User, Scissors, Shirt, X, Trash2, History, FileText, Check, ChevronRight, RefreshCw, Cloud, CloudOff, Search, Tag, Maximize2, Image as ImageIcon, Mic, MicOff } from 'lucide-react';
 
 // ★重要: ここにFirebaseを使うための部品を読み込みます
 import { initializeApp } from "firebase/app";
@@ -97,7 +97,12 @@ export default function App() {
   const [historyList, setHistoryList] = useState([]);
   const [isOnline, setIsOnline] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  // useRefは使わず、labelタグでinputを制御します
+  
+  // 音声入力用の状態
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef(null);
+
+  const fileInputRef = useRef(null);
 
   // データベースからデータを読み込む
   useEffect(() => {
@@ -113,7 +118,6 @@ export default function App() {
       });
       setHistoryList(list);
       
-      // データ読み込み完了時に、新規作成モードなら自動採番
       if (!formData.manageNo && !editingId) {
         generateManageNo(list);
       }
@@ -158,6 +162,56 @@ export default function App() {
         : [...currentArray, value];
       return { ...prev, [field]: newArray };
     });
+  };
+
+  // ★音声入力機能
+  const handleVoiceInput = () => {
+    // ブラウザが対応しているか確認
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("お使いのブラウザは音声入力に対応していません。");
+      return;
+    }
+
+    // すでに聞き取り中なら停止
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    // 音声認識を開始
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'ja-JP';
+    recognition.interimResults = false; // 確定した結果のみ取得
+
+    recognition.onstart = () => setIsListening(true);
+    
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      setFormData(prev => ({
+        ...prev,
+        stainLocation: (prev.stainLocation || "") + (prev.stainLocation ? " " : "") + transcript
+      }));
+    };
+
+    recognition.onend = () => setIsListening(false);
+    
+    recognition.onerror = (event) => {
+      console.error("Speech recognition error", event.error);
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+  };
+  
+  const handleCameraClick = () => {
+    if (photos.length >= 3) {
+      alert("写真は3枚までです");
+      return;
+    }
+    fileInputRef.current.click();
   };
   
   const resizeImage = (file) => {
@@ -287,9 +341,7 @@ export default function App() {
     }
   };
 
-  // ★印刷実行機能
   const handlePrint = () => {
-    // 印刷ダイアログを呼び出す
     setTimeout(() => {
       window.print();
     }, 100);
@@ -299,8 +351,7 @@ export default function App() {
     <div className="min-h-screen bg-slate-100 font-sans text-gray-800">
       
       {/* =================================================================
-          ★印刷用レイアウト（print:blockで表示、画面上は非表示）
-          ★ printColorAdjust: 'exact' で背景色などの印刷を強制します
+          ★印刷用レイアウト
          ================================================================= */}
       <div 
         className="hidden print:block p-8 bg-white text-black w-full h-full"
@@ -532,7 +583,18 @@ export default function App() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-bold mb-2 text-gray-700">シミ・汚れの場所/詳細</label>
+                  {/* ★音声入力ボタンを追加 */}
+                  <label className="block text-sm font-bold mb-2 text-gray-700 flex justify-between items-center">
+                    <span>シミ・汚れの場所/詳細</span>
+                    <button
+                      onClick={handleVoiceInput}
+                      className={`text-xs px-3 py-1 rounded-full flex items-center transition-all shadow-sm ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                      type="button"
+                    >
+                      {isListening ? <MicOff className="w-3 h-3 mr-1" /> : <Mic className="w-3 h-3 mr-1" />}
+                      {isListening ? '聞いています...' : '音声で入力'}
+                    </button>
+                  </label>
                   <textarea 
                     name="stainLocation"
                     className="w-full p-4 border-2 border-gray-200 rounded-xl h-28 focus:ring-4 focus:ring-red-100 focus:border-red-400 outline-none resize-none transition-all" 
