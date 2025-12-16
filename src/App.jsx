@@ -77,9 +77,10 @@ const SelectButton = ({ selected, onClick, label, subLabel }) => (
   </button>
 );
 
-// ★写真編集モーダル（マーカー機能付き）
+// ★写真編集モーダル（マーカー機能付き・サイズ調整可能）
 const PhotoMarkerModal = ({ photoSrc, onClose, onSave }) => {
   const [markers, setMarkers] = useState([]);
+  const [markerSize, setMarkerSize] = useState(5); // マーカーサイズの初期値（%）
   const imgRef = useRef(null);
   const canvasRef = useRef(null);
 
@@ -93,7 +94,8 @@ const PhotoMarkerModal = ({ photoSrc, onClose, onSave }) => {
     const xPercent = (x / rect.width) * 100;
     const yPercent = (y / rect.height) * 100;
 
-    setMarkers([...markers, { x: xPercent, y: yPercent }]);
+    // サイズも保存（その時点でのスライダーの値）
+    setMarkers([...markers, { x: xPercent, y: yPercent, size: markerSize }]);
   };
 
   const handleUndo = () => {
@@ -117,11 +119,12 @@ const PhotoMarkerModal = ({ photoSrc, onClose, onSave }) => {
     markers.forEach(m => {
       const x = (m.x / 100) * canvas.width;
       const y = (m.y / 100) * canvas.height;
-      const radius = Math.max(canvas.width * 0.03, 20); // 画像サイズに合わせてマーカーサイズ調整
+      // 画像の横幅に対する割合で半径を計算
+      const radius = (canvas.width * (m.size / 100)) / 2;
 
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, 2 * Math.PI, false);
-      ctx.lineWidth = radius * 0.3;
+      ctx.lineWidth = Math.max(radius * 0.15, 3); // 線の太さもサイズに合わせて調整（最低3px）
       ctx.strokeStyle = 'red';
       ctx.stroke();
     });
@@ -133,37 +136,62 @@ const PhotoMarkerModal = ({ photoSrc, onClose, onSave }) => {
 
   return (
     <div className="fixed inset-0 bg-black/95 z-[100] flex flex-col items-center justify-center p-4">
-      <div className="relative max-w-full max-h-[80vh] mb-4">
+      <div className="relative max-w-full max-h-[70vh] mb-4">
         <img 
           ref={imgRef}
           src={photoSrc} 
           alt="編集対象" 
-          className="max-w-full max-h-[80vh] object-contain"
+          className="max-w-full max-h-[70vh] object-contain select-none"
           onClick={handleImageClick}
         />
         {/* 画面上のマーカー表示（プレビュー用） */}
         {markers.map((m, i) => (
           <div 
             key={i}
-            className="absolute w-8 h-8 border-4 border-red-500 rounded-full pointer-events-none transform -translate-x-1/2 -translate-y-1/2 shadow-sm"
-            style={{ left: `${m.x}%`, top: `${m.y}%` }}
+            className="absolute border-4 border-red-500 rounded-full pointer-events-none transform -translate-x-1/2 -translate-y-1/2 shadow-sm"
+            style={{ 
+              left: `${m.x}%`, 
+              top: `${m.y}%`,
+              width: `${m.size}%`, // 画像幅に対する％で表示
+              aspectRatio: '1 / 1'
+            }}
           />
         ))}
       </div>
       
-      <p className="text-white text-sm mb-4 bg-black/50 px-4 py-1 rounded-full">
-        写真の上をタップして印（マーカー）を付けられます
-      </p>
+      {/* マーカーサイズ調整エリア */}
+      <div className="w-full max-w-md bg-gray-800 p-4 rounded-xl mb-4 flex flex-col gap-2">
+        <div className="flex justify-between text-white text-xs mb-1">
+          <span>マーカーサイズ調整</span>
+          <span>{markerSize}</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="w-4 h-4 border-2 border-red-500 rounded-full"></div>
+          <input 
+            type="range" 
+            min="2" 
+            max="20" 
+            step="1"
+            value={markerSize} 
+            onChange={(e) => setMarkerSize(Number(e.target.value))}
+            className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
+          />
+          <div className="w-8 h-8 border-4 border-red-500 rounded-full"></div>
+        </div>
+        <p className="text-gray-400 text-xs text-center mt-1">
+          スライダーで大きさを決めてから、写真の上をタップしてください
+        </p>
+      </div>
 
       <div className="flex gap-4">
-        <button onClick={onClose} className="px-6 py-3 bg-gray-600 text-white rounded-full font-bold">
+        <button onClick={onClose} className="px-6 py-3 bg-gray-600 text-white rounded-full font-bold hover:bg-gray-700">
           キャンセル
         </button>
-        <button onClick={handleUndo} className="px-6 py-3 bg-yellow-600 text-white rounded-full font-bold" disabled={markers.length === 0}>
+        <button onClick={handleUndo} className="px-6 py-3 bg-yellow-600 text-white rounded-full font-bold hover:bg-yellow-700" disabled={markers.length === 0}>
           一つ戻る
         </button>
-        <button onClick={handleSaveWithMarkers} className="px-6 py-3 bg-blue-600 text-white rounded-full font-bold">
-          この状態で保存
+        <button onClick={handleSaveWithMarkers} className="px-6 py-3 bg-blue-600 text-white rounded-full font-bold hover:bg-blue-700">
+          保存
         </button>
       </div>
       
@@ -271,7 +299,7 @@ export default function App() {
     });
   };
 
-  // ★定型文の挿入
+  // 定型文の挿入
   const handleAddTemplate = (text) => {
     setFormData(prev => ({
       ...prev,
@@ -279,9 +307,8 @@ export default function App() {
     }));
   };
 
-  // ★音声入力機能（改善版）
+  // 音声入力機能（改善版）
   const handleVoiceInput = () => {
-    // ブラウザごとのSpeechRecognitionオブジェクトを取得
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     
     if (!SpeechRecognition) {
@@ -299,13 +326,13 @@ export default function App() {
       const recognition = new SpeechRecognition();
       recognition.lang = 'ja-JP';
       recognition.interimResults = false;
-      recognition.continuous = false; // スマホでの安定性のためfalse推奨
+      recognition.continuous = false;
 
       recognition.onstart = () => setIsListening(true);
       
       recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
-        handleAddTemplate(transcript); // 認識結果を追記
+        handleAddTemplate(transcript);
       };
 
       recognition.onend = () => setIsListening(false);
@@ -315,11 +342,8 @@ export default function App() {
         setIsListening(false);
         if (event.error === 'not-allowed') {
           alert("マイクの使用が許可されていません。ブラウザの設定をご確認ください。");
-        } else if (event.error === 'no-speech') {
-          // 無言だった場合は無視
-        } else {
-           // iOSなどでエラーになる場合のフォールバック案内
-           alert("音声入力が開始できませんでした。\nキーボードのマイクボタンか、下の定型文をご利用ください。");
+        } else if (event.error !== 'no-speech') {
+           alert("音声入力が開始できませんでした。");
         }
       };
 
@@ -346,7 +370,7 @@ export default function App() {
         const img = new Image();
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 1000; // マーカー編集用に少し大きめに
+          const MAX_WIDTH = 1000; 
           const scaleSize = MAX_WIDTH / img.width;
           
           if (img.width > MAX_WIDTH) {
@@ -372,11 +396,7 @@ export default function App() {
     if (file) {
       try {
         const resizedPhoto = await resizeImage(file);
-        // 新しい写真を追加し、すぐに編集モードを開くか確認できるようにする
         setPhotos(prev => [...prev, resizedPhoto]); 
-        
-        // ユーザー体験向上のため、撮影直後に「編集しますか？」的なニュアンスで
-        // 最新の写真を編集モードにする手もあるが、ここではリストに追加のみとする。
       } catch (error) {
         alert("写真の処理に失敗しました");
       }
@@ -388,7 +408,6 @@ export default function App() {
     setPhotos(prev => prev.filter((_, i) => i !== index));
   };
 
-  // ★編集された写真を保存してリストを更新
   const handleUpdatePhoto = (newPhotoData) => {
     setPhotos(prev => {
       const newPhotos = [...prev];
@@ -540,7 +559,7 @@ export default function App() {
           </div>
         )}
         <div className="mt-8 pt-4 border-t-2 border-dashed border-gray-400 text-center text-sm text-gray-500">
-          Clean Master Tablet System
+          Fabric Care Karte System
         </div>
       </div>
 
@@ -552,7 +571,7 @@ export default function App() {
               <Shirt className="w-8 h-8 text-white" />
             </div>
             <div>
-              <h1 className="text-xl md:text-2xl font-bold tracking-tight">Clean Master</h1>
+              <h1 className="text-xl md:text-2xl font-bold tracking-tight">Fabric Care カルテ</h1>
               <div className="flex items-center gap-2">
                 <span className={`text-[10px] px-2 py-0.5 rounded-full flex items-center ${isOnline ? 'bg-green-500/30 text-green-100' : 'bg-red-500/30 text-red-100'}`}>
                   {isOnline ? <><Cloud className="w-3 h-3 mr-1" /> Online</> : <><CloudOff className="w-3 h-3 mr-1" /> Offline</>}
@@ -575,7 +594,6 @@ export default function App() {
           </div>
         </header>
 
-        {/* 設定アラート */}
         {!db && (
           <div className="max-w-6xl mx-auto mb-6 bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded shadow-sm">
             <div className="flex">
