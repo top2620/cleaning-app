@@ -286,6 +286,22 @@ export default function App() {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
+
+    // TAG NO.の入力時に自動的にハイフンを入れる処理
+    if (name === 'tagNumber') {
+      // 一度ハイフンを取り除いて数字(文字)だけにする
+      const raw = value.replace(/-/g, '');
+      let formatted = raw;
+      
+      // 2文字以上ある場合、1文字目の後にハイフンを挿入
+      if (raw.length > 1) {
+        formatted = raw.slice(0, 1) + '-' + raw.slice(1);
+      }
+      
+      setFormData(prev => ({ ...prev, [name]: formatted }));
+      return;
+    }
+
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
