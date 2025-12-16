@@ -1,12 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Save, Camera, Printer, CheckCircle, AlertTriangle, User, Scissors, Shirt, X, Trash2, History, FileText, Check, ChevronRight, RefreshCw, Cloud, CloudOff, Search, Tag, Maximize2, Image as ImageIcon, Mic, MicOff } from 'lucide-react';
+import { Save, Camera, Printer, CheckCircle, AlertTriangle, User, Scissors, Shirt, X, Trash2, History, FileText, Check, ChevronRight, RefreshCw, Cloud, CloudOff, Search, Tag, Maximize2, Image as ImageIcon, Mic, MicOff, Edit3, MapPin } from 'lucide-react';
 
 // ★重要: ここにFirebaseを使うための部品を読み込みます
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, deleteDoc, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp } from "firebase/firestore";
 
 // =================================================================
-// ★STEP 1: Firebaseの設定情報（あなたのキーを設定済みです）
+// ★STEP 1: Firebaseの設定情報
+// ここをご自身のキーに書き換えてください
 // =================================================================
 const firebaseConfig = {
   apiKey: "AIzaSyBt3YJKQwdK-DqEV7rh3Mlh4BVOGa3Tw2s",
@@ -20,13 +21,23 @@ const firebaseConfig = {
 // Firebaseの初期化
 let db;
 try {
-  const app = initializeApp(firebaseConfig);
-  db = getFirestore(app);
+  if (firebaseConfig.apiKey !== "AIzaSy...") {
+    const app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+  }
 } catch (e) {
   console.error("Firebase初期化エラー:", e);
 }
 
 // ------------------------------------------------------------------
+
+// 定型文リスト
+const TEXT_TEMPLATES = [
+  "襟の黄ばみあり", "袖口に黒ずみ", "食べこぼしのシミ", 
+  "インクのシミ", "全体的にシワ", "ボタン欠損", 
+  "ほつれあり", "色落ち注意", "ファスナー動作不良",
+  "ポケット内確認済み", "付属品あり"
+];
 
 // カードコンポーネント
 const Card = ({ children, title, icon: Icon, color = "bg-white", headerColor = "bg-gray-50" }) => (
@@ -66,7 +77,104 @@ const SelectButton = ({ selected, onClick, label, subLabel }) => (
   </button>
 );
 
-// 今日の日付を取得する関数 (YYYYMMDD形式)
+// ★写真編集モーダル（マーカー機能付き）
+const PhotoMarkerModal = ({ photoSrc, onClose, onSave }) => {
+  const [markers, setMarkers] = useState([]);
+  const imgRef = useRef(null);
+  const canvasRef = useRef(null);
+
+  // 画像上のクリックした位置にマーカーを追加
+  const handleImageClick = (e) => {
+    const rect = e.target.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    // 画像の表示サイズに対する割合(%)で保存
+    const xPercent = (x / rect.width) * 100;
+    const yPercent = (y / rect.height) * 100;
+
+    setMarkers([...markers, { x: xPercent, y: yPercent }]);
+  };
+
+  const handleUndo = () => {
+    setMarkers(markers.slice(0, -1));
+  };
+
+  // マーカーを合成して保存
+  const handleSaveWithMarkers = () => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const img = imgRef.current;
+
+    // キャンバスサイズを画像の実サイズに合わせる
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+
+    // 画像を描画
+    ctx.drawImage(img, 0, 0);
+
+    // マーカーを描画
+    markers.forEach(m => {
+      const x = (m.x / 100) * canvas.width;
+      const y = (m.y / 100) * canvas.height;
+      const radius = Math.max(canvas.width * 0.03, 20); // 画像サイズに合わせてマーカーサイズ調整
+
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, 2 * Math.PI, false);
+      ctx.lineWidth = radius * 0.3;
+      ctx.strokeStyle = 'red';
+      ctx.stroke();
+    });
+
+    // 画像データとして出力
+    onSave(canvas.toDataURL('image/jpeg', 0.8));
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/95 z-[100] flex flex-col items-center justify-center p-4">
+      <div className="relative max-w-full max-h-[80vh] mb-4">
+        <img 
+          ref={imgRef}
+          src={photoSrc} 
+          alt="編集対象" 
+          className="max-w-full max-h-[80vh] object-contain"
+          onClick={handleImageClick}
+        />
+        {/* 画面上のマーカー表示（プレビュー用） */}
+        {markers.map((m, i) => (
+          <div 
+            key={i}
+            className="absolute w-8 h-8 border-4 border-red-500 rounded-full pointer-events-none transform -translate-x-1/2 -translate-y-1/2 shadow-sm"
+            style={{ left: `${m.x}%`, top: `${m.y}%` }}
+          />
+        ))}
+      </div>
+      
+      <p className="text-white text-sm mb-4 bg-black/50 px-4 py-1 rounded-full">
+        写真の上をタップして印（マーカー）を付けられます
+      </p>
+
+      <div className="flex gap-4">
+        <button onClick={onClose} className="px-6 py-3 bg-gray-600 text-white rounded-full font-bold">
+          キャンセル
+        </button>
+        <button onClick={handleUndo} className="px-6 py-3 bg-yellow-600 text-white rounded-full font-bold" disabled={markers.length === 0}>
+          一つ戻る
+        </button>
+        <button onClick={handleSaveWithMarkers} className="px-6 py-3 bg-blue-600 text-white rounded-full font-bold">
+          この状態で保存
+        </button>
+      </div>
+      
+      {/* 合成用キャンバス（非表示） */}
+      <canvas ref={canvasRef} className="hidden" />
+    </div>
+  );
+};
+
+
+// 今日の日付を取得する関数
 const getTodayStr = () => {
   const d = new Date();
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
@@ -91,7 +199,7 @@ export default function App() {
 
   const [formData, setFormData] = useState(initialData);
   const [photos, setPhotos] = useState([]); 
-  const [previewPhoto, setPreviewPhoto] = useState(null); 
+  const [editingPhotoIndex, setEditingPhotoIndex] = useState(null); // 編集中の写真インデックス
   const [editingId, setEditingId] = useState(null);
   
   const [historyList, setHistoryList] = useState([]);
@@ -118,7 +226,6 @@ export default function App() {
       });
       setHistoryList(list);
       
-      // 新規作成モードなら自動採番
       if (!formData.manageNo && !editingId) {
         generateManageNo(list);
       }
@@ -146,7 +253,6 @@ export default function App() {
     const nameMatch = record.customerName?.toLowerCase().includes(searchLower);
     const tagMatch = record.tagNumber?.toLowerCase().includes(searchLower);
     const manageNoMatch = record.manageNo?.toLowerCase().includes(searchLower);
-    
     return nameMatch || tagMatch || manageNoMatch;
   });
 
@@ -165,11 +271,21 @@ export default function App() {
     });
   };
 
-  // 音声入力機能
+  // ★定型文の挿入
+  const handleAddTemplate = (text) => {
+    setFormData(prev => ({
+      ...prev,
+      stainLocation: (prev.stainLocation || "") + (prev.stainLocation ? "、" : "") + text
+    }));
+  };
+
+  // ★音声入力機能（改善版）
   const handleVoiceInput = () => {
+    // ブラウザごとのSpeechRecognitionオブジェクトを取得
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    
     if (!SpeechRecognition) {
-      alert("お使いのブラウザは音声入力に対応していません。");
+      alert("申し訳ありません。お使いのブラウザは音声入力に対応していません。\niOSの場合はキーボードのマイクボタンをご利用ください。");
       return;
     }
 
@@ -179,28 +295,42 @@ export default function App() {
       return;
     }
 
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'ja-JP';
-    recognition.interimResults = false;
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'ja-JP';
+      recognition.interimResults = false;
+      recognition.continuous = false; // スマホでの安定性のためfalse推奨
 
-    recognition.onstart = () => setIsListening(true);
-    
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      setFormData(prev => ({
-        ...prev,
-        stainLocation: (prev.stainLocation || "") + (prev.stainLocation ? " " : "") + transcript
-      }));
-    };
+      recognition.onstart = () => setIsListening(true);
+      
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        handleAddTemplate(transcript); // 認識結果を追記
+      };
 
-    recognition.onend = () => setIsListening(false);
-    recognition.onerror = () => setIsListening(false);
+      recognition.onend = () => setIsListening(false);
+      
+      recognition.onerror = (event) => {
+        console.error("Speech error", event);
+        setIsListening(false);
+        if (event.error === 'not-allowed') {
+          alert("マイクの使用が許可されていません。ブラウザの設定をご確認ください。");
+        } else if (event.error === 'no-speech') {
+          // 無言だった場合は無視
+        } else {
+           // iOSなどでエラーになる場合のフォールバック案内
+           alert("音声入力が開始できませんでした。\nキーボードのマイクボタンか、下の定型文をご利用ください。");
+        }
+      };
 
-    recognitionRef.current = recognition;
-    recognition.start();
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (e) {
+      console.error(e);
+      alert("音声入力の起動に失敗しました。");
+    }
   };
   
-  // カメラ機能
   const handleCameraClick = () => {
     if (photos.length >= 3) {
       alert("写真は3枚までです");
@@ -216,7 +346,7 @@ export default function App() {
         const img = new Image();
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 800; 
+          const MAX_WIDTH = 1000; // マーカー編集用に少し大きめに
           const scaleSize = MAX_WIDTH / img.width;
           
           if (img.width > MAX_WIDTH) {
@@ -229,7 +359,7 @@ export default function App() {
           
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          resolve(canvas.toDataURL('image/jpeg', 0.7)); 
+          resolve(canvas.toDataURL('image/jpeg', 0.8)); 
         };
         img.src = e.target.result;
       };
@@ -240,14 +370,13 @@ export default function App() {
   const handleFileChange = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      if (photos.length >= 3) {
-        alert("写真は3枚までです");
-        e.target.value = '';
-        return;
-      }
       try {
         const resizedPhoto = await resizeImage(file);
+        // 新しい写真を追加し、すぐに編集モードを開くか確認できるようにする
         setPhotos(prev => [...prev, resizedPhoto]); 
+        
+        // ユーザー体験向上のため、撮影直後に「編集しますか？」的なニュアンスで
+        // 最新の写真を編集モードにする手もあるが、ここではリストに追加のみとする。
       } catch (error) {
         alert("写真の処理に失敗しました");
       }
@@ -259,7 +388,15 @@ export default function App() {
     setPhotos(prev => prev.filter((_, i) => i !== index));
   };
 
-  // 保存機能
+  // ★編集された写真を保存してリストを更新
+  const handleUpdatePhoto = (newPhotoData) => {
+    setPhotos(prev => {
+      const newPhotos = [...prev];
+      newPhotos[editingPhotoIndex] = newPhotoData;
+      return newPhotos;
+    });
+  };
+
   const handleSave = async () => {
     if (!formData.customerName) {
       alert("お客様名を入力してください");
@@ -323,7 +460,6 @@ export default function App() {
       const { id, saveDate, photoData, photos: savedPhotos, createdAt, ...rest } = record;
       setEditingId(id);
       setFormData(rest);
-      
       if (savedPhotos && Array.isArray(savedPhotos)) {
         setPhotos(savedPhotos);
       } else if (photoData) {
@@ -335,7 +471,6 @@ export default function App() {
     }
   };
 
-  // 印刷機能
   const handlePrint = () => {
     setTimeout(() => {
       window.print();
@@ -345,9 +480,16 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-gray-800">
       
-      {/* =================================================================
-          ★印刷用レイアウト（背景色なども強制的に印刷する設定）
-         ================================================================= */}
+      {/* ★写真編集・マーカー追加モーダル */}
+      {editingPhotoIndex !== null && (
+        <PhotoMarkerModal 
+          photoSrc={photos[editingPhotoIndex]} 
+          onClose={() => setEditingPhotoIndex(null)}
+          onSave={handleUpdatePhoto}
+        />
+      )}
+
+      {/* 印刷用レイアウト */}
       <div 
         className="hidden print:block p-8 bg-white text-black w-full h-full"
         style={{ printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}
@@ -363,12 +505,10 @@ export default function App() {
             <p className="text-xl font-bold">Tag No: {formData.tagNumber || '-----'}</p>
           </div>
         </div>
-
         <div className="border-2 border-black p-4 mb-6 bg-gray-50">
           <p className="text-sm mb-1">お客様名</p>
           <p className="text-2xl font-bold">{formData.customerName} 様</p>
         </div>
-
         <div className="grid grid-cols-2 gap-6 mb-6">
           <div className="border border-gray-400 p-2">
             <span className="block text-xs font-bold bg-gray-200 px-1">アイテム / ブランド</span>
@@ -379,18 +519,16 @@ export default function App() {
             <div className="p-2 text-lg">{formData.processInstruction} / {formData.finishing}</div>
           </div>
         </div>
-
         <div className="mb-6">
           <span className="block text-sm font-bold border-b border-gray-400 mb-2">ご要望・指示事項</span>
           <div className="flex flex-wrap gap-2 mb-2">
             {formData.needs.map(n => <span key={n} className="border border-black px-2 py-1 rounded bg-red-50 font-bold">{n}</span>)}
             {formData.specialTreatments.map(t => <span key={t} className="border border-black px-2 py-1 rounded bg-blue-50 font-bold">{t}</span>)}
           </div>
-          <div className="border border-gray-300 p-3 min-h-[100px] whitespace-pre-wrap">
+          <div className="border border-gray-300 p-3 min-h-[100px] whitespace-pre-wrap text-lg">
             {formData.stainLocation}
           </div>
         </div>
-
         {photos.length > 0 && (
           <div className="mb-6">
             <p className="text-sm font-bold mb-2">記録写真</p>
@@ -401,40 +539,13 @@ export default function App() {
             </div>
           </div>
         )}
-
         <div className="mt-8 pt-4 border-t-2 border-dashed border-gray-400 text-center text-sm text-gray-500">
           Clean Master Tablet System
         </div>
       </div>
 
-
-      {/* =================================================================
-          ★通常画面
-         ================================================================= */}
+      {/* 通常画面 */}
       <div className="print:hidden p-4 pb-32">
-        {/* 拡大表示用モーダル */}
-        {previewPhoto && (
-          <div 
-            className="fixed inset-0 bg-black/95 z-[100] flex items-center justify-center p-4 cursor-pointer"
-            onClick={() => setPreviewPhoto(null)}
-          >
-            <div className="relative w-full h-full flex items-center justify-center">
-              <img 
-                src={previewPhoto} 
-                alt="拡大" 
-                className="max-w-full max-h-full object-contain" 
-              />
-              <button className="absolute top-4 right-4 bg-white/20 text-white p-3 rounded-full hover:bg-white/40">
-                <X className="w-8 h-8" />
-              </button>
-              <p className="absolute bottom-10 text-white text-sm bg-black/50 px-4 py-2 rounded-full">
-                タップして閉じる
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* ヘッダー */}
         <header className="flex justify-between items-center mb-8 bg-gradient-to-r from-blue-700 to-indigo-800 text-white p-5 rounded-2xl shadow-lg sticky top-2 z-50 backdrop-blur-sm bg-opacity-95">
           <div className="flex items-center gap-4">
             <div className="bg-white/20 p-3 rounded-xl backdrop-blur-md border border-white/30">
@@ -464,7 +575,7 @@ export default function App() {
           </div>
         </header>
 
-        {/* 設定未完了時のアラート */}
+        {/* 設定アラート */}
         {!db && (
           <div className="max-w-6xl mx-auto mb-6 bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded shadow-sm">
             <div className="flex">
@@ -482,11 +593,10 @@ export default function App() {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-6xl mx-auto">
-          {/* 左カラム：受付・検品 */}
+          {/* 左カラム */}
           <div className="space-y-8">
             <Card title="1. 受付情報の入力" icon={User}>
               <div className="space-y-6">
-                {/* タグ番号入力エリア */}
                 <div className="flex gap-4">
                   <div className="w-1/3">
                     <label className="block text-sm font-bold mb-2 text-gray-700 flex items-center">
@@ -578,7 +688,6 @@ export default function App() {
                 </div>
                 
                 <div>
-                  {/* 音声入力ボタン */}
                   <label className="block text-sm font-bold mb-2 text-gray-700 flex justify-between items-center">
                     <span>シミ・汚れの場所/詳細</span>
                     <button
@@ -592,11 +701,24 @@ export default function App() {
                   </label>
                   <textarea 
                     name="stainLocation"
-                    className="w-full p-4 border-2 border-gray-200 rounded-xl h-28 focus:ring-4 focus:ring-red-100 focus:border-red-400 outline-none resize-none transition-all" 
+                    className="w-full p-4 border-2 border-gray-200 rounded-xl h-24 focus:ring-4 focus:ring-red-100 focus:border-red-400 outline-none resize-none transition-all mb-2" 
                     placeholder="例：右袖口にコーヒーのシミ。1週間前。水で軽く拭いたとのこと。"
                     value={formData.stainLocation}
                     onChange={handleChange}
                   ></textarea>
+
+                  {/* ★定型文ボタンエリア */}
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {TEXT_TEMPLATES.map((text, i) => (
+                      <button
+                        key={i}
+                        onClick={() => handleAddTemplate(text)}
+                        className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-full border border-gray-300 transition-colors"
+                      >
+                        + {text}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div 
@@ -623,9 +745,8 @@ export default function App() {
                   </div>
                 </div>
                 
-                {/* カメラ機能エリア（スマホ対応・label使用） */}
+                {/* カメラ機能エリア */}
                 <div className="space-y-3">
-                  {/* inputを完全に隠すのではなく、透明にして背面に配置する（安定性のため） */}
                   <input 
                     id="camera-input"
                     type="file" 
@@ -635,7 +756,6 @@ export default function App() {
                     className="absolute opacity-0 pointer-events-none"
                   />
                   
-                  {/* 写真リスト表示 */}
                   {photos.length > 0 && (
                     <div className="grid grid-cols-3 gap-2 mb-2">
                       {photos.map((p, index) => (
@@ -644,26 +764,26 @@ export default function App() {
                             src={p} 
                             alt={`写真 ${index + 1}`} 
                             className="w-full h-full object-contain cursor-pointer hover:opacity-90"
-                            onClick={() => setPreviewPhoto(p)}
+                            onClick={() => setEditingPhotoIndex(index)} // タップで編集モードへ
                           />
                           <button 
                             onClick={(e) => {
                               e.stopPropagation();
                               removePhoto(index);
                             }}
-                            className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full shadow-md hover:bg-red-600"
+                            className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full shadow-md hover:bg-red-600 z-10"
                           >
                             <X className="w-3 h-3" />
                           </button>
-                          <div className="absolute bottom-1 right-1 bg-black/60 rounded-full p-1 pointer-events-none">
-                            <Maximize2 className="w-3 h-3 text-white" />
+                          {/* 編集アイコンを表示してタップを促す */}
+                          <div className="absolute bottom-1 right-1 bg-blue-600 rounded-full p-1 pointer-events-none shadow-md">
+                            <Edit3 className="w-3 h-3 text-white" />
                           </div>
                         </div>
                       ))}
                     </div>
                   )}
 
-                  {/* 撮影ボタン（labelタグを使用） */}
                   {photos.length < 3 && (
                     <label 
                       htmlFor="camera-input"
@@ -811,7 +931,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* ★保存済みカルテ一覧エリア（検索機能付き・写真表示） */}
+        {/* ★保存済みカルテ一覧エリア */}
         <div className="max-w-6xl mx-auto mt-16 print:hidden">
           <div className="flex flex-col md:flex-row items-center justify-between mb-6 gap-4">
             <h2 className="text-xl font-bold text-gray-700 flex items-center">
@@ -864,7 +984,7 @@ export default function App() {
                      <h3 className="font-bold text-xl text-gray-800">{record.customerName || "名称未設定"} <span className="text-sm font-normal text-gray-500">様</span></h3>
                   </div>
                   
-                  {/* 履歴リストにも写真を表示 */}
+                  {/* 履歴リストにも写真を表示（タップで拡大） */}
                   {record.photos && record.photos.length > 0 && (
                     <div className="flex gap-2 mb-3 overflow-x-auto pb-2">
                       {record.photos.map((p, i) => (
@@ -875,7 +995,8 @@ export default function App() {
                            className="w-16 h-16 object-contain bg-gray-100 rounded border border-gray-200 cursor-pointer hover:opacity-80" 
                            onClick={(e) => { 
                              e.stopPropagation(); 
-                             setPreviewPhoto(p); 
+                             setEditingPhotoIndex(null); // モーダルではない
+                             setPreviewPhoto(p); // 単純な拡大表示
                            }} 
                          />
                       ))}
