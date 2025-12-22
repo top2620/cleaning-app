@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Save, Camera, Printer, CheckCircle, AlertTriangle, User, Scissors, Shirt, X, Trash2, History, FileText, Check, ChevronRight, RefreshCw, Cloud, CloudOff, Search, Tag, Maximize2, Image as ImageIcon, Mic, MicOff, Edit3, MapPin } from 'lucide-react';
+import { Save, Camera, Printer, CheckCircle, AlertTriangle, User, Scissors, Shirt, X, Trash2, History, FileText, Check, ChevronRight, RefreshCw, Cloud, CloudOff, Search, Tag, Maximize2, Image as ImageIcon, Mic, MicOff, Edit3, MapPin, Zap, Star } from 'lucide-react';
 
 // ★重要: ここにFirebaseを使うための部品を読み込みます
 import { initializeApp } from "firebase/app";
@@ -21,6 +21,7 @@ const firebaseConfig = {
 // Firebaseの初期化
 let db;
 try {
+  // ダミーキーの場合は初期化しない判定（実際はご自身のキーが入っていれば初期化されます）
   if (firebaseConfig.apiKey !== "AIzaSy...") {
     const app = initializeApp(firebaseConfig);
     db = getFirestore(app);
@@ -220,6 +221,8 @@ export default function App() {
     riskAccepted: false,
     processInstruction: "スタンダード",
     specialTreatments: [],
+    stainRemovalRequest: "なし", 
+    stainRemovalPrice: 0, // 新規追加：しみ抜き金額
     finishing: "ソフト仕上げ（ふんわり）",
     resultStatus: "良好・完了",
     finalMessage: ""
@@ -284,10 +287,11 @@ export default function App() {
     return nameMatch || tagMatch || manageNoMatch;
   });
 
+  // 入力ハンドラー
   const handleChange = (e) => {
     const { name, value } = e.target;
 
-    // TAG NO.の入力時に自動的にハイフンを入れる処理
+    // TAG NOの自動フォーマット（1桁目の後にハイフンを入れる）
     if (name === 'tagNumber') {
       // 一度ハイフンを取り除いて数字(文字)だけにする
       const raw = value.replace(/-/g, '');
@@ -323,7 +327,51 @@ export default function App() {
     }));
   };
 
-  // 音声入力機能（改善版）
+  // ★ かんたんセット（プリセット）機能
+  const applyQuickPreset = (type) => {
+    if(!window.confirm("現在入力中の項目（アイテム・コース・仕上げ）が上書きされますがよろしいですか？")) return;
+
+    let preset = {};
+    switch(type) {
+      case 'shirt':
+        preset = {
+          itemType: "ワイシャツ",
+          processInstruction: "スタンダード",
+          finishing: "ハンガー仕上げ",
+          specialTreatments: ["エリ・ソデ重点"]
+        };
+        break;
+      case 'suit':
+        preset = {
+          itemType: "スーツ上",
+          processInstruction: "スタンダード",
+          finishing: "ソフト仕上げ（ふんわり）",
+          specialTreatments: []
+        };
+        break;
+      case 'suit_bottom':
+        preset = {
+          itemType: "スーツ下（ズボン）",
+          processInstruction: "スタンダード",
+          finishing: "センタープレス有り",
+          specialTreatments: []
+        };
+        break;
+      case 'delicate':
+        preset = {
+          itemType: "セーター・ニット",
+          processInstruction: "デラックス",
+          finishing: "たたみ仕上げ",
+          specialTreatments: ["ネット必須", "デリケート"]
+        };
+        break;
+      default:
+        return;
+    }
+    setFormData(prev => ({ ...prev, ...preset }));
+  };
+
+  // 音声入力機能
   const handleVoiceInput = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     
@@ -559,6 +607,12 @@ export default function App() {
           <div className="flex flex-wrap gap-2 mb-2">
             {formData.needs.map(n => <span key={n} className="border border-black px-2 py-1 rounded bg-red-50 font-bold">{n}</span>)}
             {formData.specialTreatments.map(t => <span key={t} className="border border-black px-2 py-1 rounded bg-blue-50 font-bold">{t}</span>)}
+            {formData.stainRemovalRequest !== "なし" && (
+              <span className="border border-black px-2 py-1 rounded bg-yellow-50 font-bold">
+                しみ抜き：{formData.stainRemovalRequest}
+                {formData.stainRemovalRequest === '有料' && formData.stainRemovalPrice > 0 && ` (${formData.stainRemovalPrice}円)`}
+              </span>
+            )}
           </div>
           <div className="border border-gray-300 p-3 min-h-[100px] whitespace-pre-wrap text-lg">
             {formData.stainLocation}
@@ -581,34 +635,73 @@ export default function App() {
 
       {/* 通常画面 */}
       <div className="print:hidden p-4 pb-32">
-        <header className="flex justify-between items-center mb-8 bg-gradient-to-r from-blue-700 to-indigo-800 text-white p-5 rounded-2xl shadow-lg sticky top-2 z-50 backdrop-blur-sm bg-opacity-95">
-          <div className="flex items-center gap-4">
-            <div className="bg-white/20 p-3 rounded-xl backdrop-blur-md border border-white/30">
-              <Shirt className="w-8 h-8 text-white" />
+        <header className="flex flex-col gap-4 mb-6 bg-gradient-to-r from-blue-700 to-indigo-800 text-white p-5 rounded-2xl shadow-lg sticky top-2 z-50 backdrop-blur-sm bg-opacity-95">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-4">
+              <div className="bg-white/20 p-3 rounded-xl backdrop-blur-md border border-white/30">
+                <Shirt className="w-8 h-8 text-white" />
+              </div>
+              <div>
+                <h1 className="text-xl md:text-2xl font-bold tracking-tight">Fabric Care カルテ</h1>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full flex items-center ${isOnline ? 'bg-green-500/30 text-green-100' : 'bg-red-500/30 text-red-100'}`}>
+                    {isOnline ? <><Cloud className="w-3 h-3 mr-1" /> Online</> : <><CloudOff className="w-3 h-3 mr-1" /> Offline</>}
+                  </span>
+                  {editingId && <span className="bg-yellow-500 text-yellow-900 text-xs font-bold px-2 py-0.5 rounded animate-pulse">編集モード</span>}
+                </div>
+              </div>
             </div>
-            <div>
-              <h1 className="text-xl md:text-2xl font-bold tracking-tight">Fabric Care カルテ</h1>
-              <div className="flex items-center gap-2">
-                <span className={`text-[10px] px-2 py-0.5 rounded-full flex items-center ${isOnline ? 'bg-green-500/30 text-green-100' : 'bg-red-500/30 text-red-100'}`}>
-                  {isOnline ? <><Cloud className="w-3 h-3 mr-1" /> Online</> : <><CloudOff className="w-3 h-3 mr-1" /> Offline</>}
-                </span>
-                {editingId && <span className="bg-yellow-500 text-yellow-900 text-xs font-bold px-2 py-0.5 rounded animate-pulse">編集モード</span>}
+            <div className="text-right">
+              <button 
+                onClick={handleReset}
+                className="text-xs bg-white/10 hover:bg-white/20 active:bg-white/30 text-white px-4 py-2 rounded-full mb-2 flex items-center ml-auto transition-colors"
+              >
+                <RefreshCw className="w-3 h-3 mr-2" /> 新規作成
+              </button>
+              <div className="bg-black/20 px-4 py-1 rounded-lg backdrop-blur-sm border border-white/10">
+                <div className="text-[10px] uppercase tracking-wider opacity-70">Case ID</div>
+                <div className="text-xl font-mono font-bold tracking-widest">{formData.manageNo}</div>
               </div>
             </div>
           </div>
-          <div className="text-right">
-            <button 
-              onClick={handleReset}
-              className="text-xs bg-white/10 hover:bg-white/20 active:bg-white/30 text-white px-4 py-2 rounded-full mb-2 flex items-center ml-auto transition-colors"
-            >
-              <RefreshCw className="w-3 h-3 mr-2" /> 新規作成
-            </button>
-            <div className="bg-black/20 px-4 py-1 rounded-lg backdrop-blur-sm border border-white/10">
-              <div className="text-[10px] uppercase tracking-wider opacity-70">Case ID</div>
-              <div className="text-xl font-mono font-bold tracking-widest">{formData.manageNo}</div>
+
+          {/* ★トップ検索バー */}
+          <div className="relative w-full">
+            <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+              <Search className="w-5 h-5 text-gray-200" />
             </div>
+            <input 
+              type="text" 
+              className="block w-full p-3 pl-10 text-sm text-white border border-white/30 rounded-xl bg-white/10 placeholder-gray-300 focus:ring-2 focus:ring-white/50 focus:bg-white/20 transition-all outline-none" 
+              placeholder="🔍 過去の履歴を検索（お客様名、タグ番号）" 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
         </header>
+
+        {/* 検索結果が1件以上ある場合に簡易表示（トップ検索用） */}
+        {searchQuery && filteredList.length > 0 && (
+          <div className="mb-8 p-4 bg-white rounded-xl shadow border border-blue-200">
+            <h3 className="text-sm font-bold text-gray-500 mb-2">検索結果: {filteredList.length}件（タップで呼び出し）</h3>
+            <div className="flex gap-2 overflow-x-auto pb-2">
+               {filteredList.slice(0, 5).map(record => (
+                 <button 
+                   key={record.id}
+                   onClick={() => {
+                     handleLoad(record);
+                     setSearchQuery(""); // 選択したら検索クリア
+                   }}
+                   className="flex-shrink-0 bg-blue-50 border border-blue-200 rounded-lg p-3 text-left w-40 hover:bg-blue-100 transition-colors"
+                 >
+                    <div className="text-xs text-blue-600 font-bold mb-1">{record.tagNumber || "No Tag"}</div>
+                    <div className="text-sm font-bold truncate">{record.customerName}</div>
+                    <div className="text-xs text-gray-500">{record.itemType}</div>
+                 </button>
+               ))}
+            </div>
+          </div>
+        )}
 
         {!db && (
           <div className="max-w-6xl mx-auto mb-6 bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded shadow-sm">
@@ -626,6 +719,36 @@ export default function App() {
           </div>
         )}
 
+        {/* ★かんたん入力（プリセット）エリア */}
+        <div className="max-w-6xl mx-auto mb-8">
+          <div className="flex items-center mb-2">
+            <Zap className="w-5 h-5 text-yellow-500 mr-2" />
+            <span className="text-sm font-bold text-gray-600">かんたんセット（ワンタップで入力）</span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <button onClick={() => applyQuickPreset('shirt')} className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:bg-blue-50 hover:border-blue-300 transition-all text-left group">
+               <div className="text-2xl mb-1 group-hover:scale-110 transition-transform">👔</div>
+               <div className="font-bold text-gray-700 text-sm">ワイシャツ</div>
+               <div className="text-[10px] text-gray-400">ハンガー・エリ袖</div>
+            </button>
+            <button onClick={() => applyQuickPreset('suit')} className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:bg-blue-50 hover:border-blue-300 transition-all text-left group">
+               <div className="text-2xl mb-1 group-hover:scale-110 transition-transform">🧥</div>
+               <div className="font-bold text-gray-700 text-sm">スーツ（上）</div>
+               <div className="text-[10px] text-gray-400">ソフト・標準</div>
+            </button>
+            <button onClick={() => applyQuickPreset('suit_bottom')} className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:bg-blue-50 hover:border-blue-300 transition-all text-left group">
+               <div className="text-2xl mb-1 group-hover:scale-110 transition-transform">👖</div>
+               <div className="font-bold text-gray-700 text-sm">ズボン</div>
+               <div className="text-[10px] text-gray-400">センタープレス</div>
+            </button>
+            <button onClick={() => applyQuickPreset('delicate')} className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:bg-blue-50 hover:border-blue-300 transition-all text-left group">
+               <div className="text-2xl mb-1 group-hover:scale-110 transition-transform">🧶</div>
+               <div className="font-bold text-gray-700 text-sm">セーター</div>
+               <div className="text-[10px] text-gray-400">デラックス・たたみ</div>
+            </button>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-6xl mx-auto">
           {/* 左カラム */}
           <div className="space-y-8">
@@ -640,7 +763,7 @@ export default function App() {
                       type="text" 
                       name="tagNumber"
                       className="w-full p-4 border-2 border-blue-200 rounded-xl bg-blue-50 text-xl font-bold text-blue-800 text-center focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all placeholder-blue-200"
-                      placeholder="123"
+                      placeholder="1-23"
                       value={formData.tagNumber}
                       onChange={handleChange}
                     />
@@ -838,6 +961,55 @@ export default function App() {
           <div className="space-y-8">
             <Card title="3. 工場指示 (Instruction)" icon={Scissors}>
               <div className="space-y-6">
+                
+                {/* ★新規追加：しみ抜き指定エリア */}
+                <div className="bg-yellow-50 border-2 border-yellow-200 p-4 rounded-xl">
+                  <label className="block text-sm font-bold mb-3 text-yellow-800 flex items-center">
+                    <Star className="w-4 h-4 mr-1 text-yellow-600 fill-yellow-600" /> しみ抜き指定（必須）
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {['なし', '無料範囲', '有料'].map((type) => (
+                      <button
+                        key={type}
+                        onClick={() => setFormData(prev => ({...prev, stainRemovalRequest: type}))}
+                        className={`
+                          py-3 rounded-lg font-bold text-sm transition-all duration-200
+                          ${formData.stainRemovalRequest === type
+                            ? 'bg-yellow-500 text-white shadow-md transform scale-[1.02]' 
+                            : 'bg-white border border-yellow-200 text-gray-600 hover:bg-yellow-100'
+                          }
+                        `}
+                      >
+                        {type}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* ★有料選択時の金額ボタン（新規追加） */}
+                  {formData.stainRemovalRequest === '有料' && (
+                    <div className="mt-3 pt-3 border-t border-yellow-200 animate-in fade-in slide-in-from-top-2 duration-300">
+                      <label className="block text-xs font-bold mb-2 text-yellow-700">有料金額を選択</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[500, 800, 1000, 1500, 2000, 3000].map(price => (
+                          <button
+                            key={price}
+                            onClick={() => setFormData(prev => ({...prev, stainRemovalPrice: price}))}
+                            className={`
+                              py-2 rounded-lg text-sm font-bold border transition-all duration-200
+                              ${formData.stainRemovalPrice === price
+                                ? 'bg-yellow-600 text-white border-yellow-600 shadow-sm'
+                                : 'bg-white text-yellow-800 border-yellow-300 hover:bg-yellow-100'
+                              }
+                            `}
+                          >
+                            {price}円
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div>
                   <label className="block text-sm font-bold mb-3 text-gray-700">洗浄コース</label>
                   <div className="grid grid-cols-3 gap-3">
@@ -973,7 +1145,7 @@ export default function App() {
               <span className="ml-2 bg-gray-200 text-gray-700 text-xs px-2 py-1 rounded-full">{filteredList.length} 件</span>
             </h2>
             
-            {/* ★検索バー */}
+            {/* ★下部検索バー（既存のものも残す） */}
             <div className="relative w-full md:w-96">
               <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
                 <Search className="w-5 h-5 text-gray-400" />
@@ -1030,7 +1202,9 @@ export default function App() {
                            onClick={(e) => { 
                              e.stopPropagation(); 
                              setEditingPhotoIndex(null); // モーダルではない
-                             setPreviewPhoto(p); // 単純な拡大表示
+                             // 単純なプレビュー拡大などはここでは省略、必要であれば実装可能
+                             // 現状はクリックしても何も起きないか、編集中なら編集モーダルが出る可能性があるため
+                             // シンプルにクリックイベントを止めています
                            }} 
                          />
                       ))}
