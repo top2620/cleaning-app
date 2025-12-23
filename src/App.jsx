@@ -338,7 +338,6 @@ export default function App() {
         await addDoc(collection(db, "kartes"), { ...formData, status: st, photos, saveDate: new Date().toLocaleString(), createdAt: serverTimestamp() });
       }
       
-      // ★修正: 保存後はユーザーに次の行動を選ばせる
       const msg = isSimpleMode 
         ? "保存しました！\n\n【OK】続けて次の衣類を入力（新規入力へ）\n【キャンセル】この画面に留まる（レシート発行など）" 
         : "保存しました！\n続けて新規入力しますか？";
@@ -346,7 +345,6 @@ export default function App() {
       if (window.confirm(msg)) {
         handleReset();
       }
-      // キャンセルした場合は画面そのままなので、ユーザーはレシートボタンを押せる
     } catch (e) { alert("保存失敗: " + e.message); }
   };
 
@@ -362,13 +360,11 @@ export default function App() {
   const handleLoad = (r) => {
     const { id, saveDate, photoData, photos: sp, createdAt, ...rest } = r;
     setEditingId(id);
-    // 古いデータ形式にも対応できるように、初期データとマージする
     setFormData({ ...initialData, ...rest });
     setPhotos(sp && Array.isArray(sp) ? sp : photoData ? [photoData] : []);
     
     if (isFactoryMode) {
-      // 工場モードの時はスクロールしない（ビューアに表示される）
-      setSearchQuery(""); // 検索クリア
+      setSearchQuery("");
     } else {
       if (window.confirm("読み込みますか？")) {
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -389,7 +385,6 @@ export default function App() {
       {editingPhotoIndex !== null && <PhotoMarkerModal photoSrc={photos[editingPhotoIndex]} onClose={() => setEditingPhotoIndex(null)} onSave={handleUpdatePhoto} />}
       {showReceipt && <ReceiptModal data={formData} photos={photos} onClose={() => { setShowReceipt(false); }} />}
 
-      {/* 印刷用レイアウト */}
       <div className="hidden print:block p-8 bg-white text-black w-full h-full" style={{ printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}>
         <h1 className="text-3xl font-bold mb-2 border-b-2 border-black pb-2">クリーニング受付カルテ</h1>
         <div className="flex justify-between mb-6">
@@ -414,7 +409,6 @@ export default function App() {
       </div>
 
       <div className="print:hidden p-4 pb-32">
-        {/* ヘッダーエリア */}
         <header className={`flex flex-col gap-4 mb-6 p-5 rounded-2xl shadow-lg sticky top-2 z-50 backdrop-blur-sm bg-opacity-95 transition-colors ${isFactoryMode ? 'bg-gradient-to-r from-gray-900 to-black border-b border-gray-700' : 'bg-gradient-to-r from-blue-700 to-indigo-800 text-white'}`}>
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-4">
@@ -434,7 +428,6 @@ export default function App() {
             </div>
             
             <div className="text-right flex items-center gap-2">
-              {/* 工場モード切替ボタン */}
               <button 
                 onClick={() => { setIsFactoryMode(!isFactoryMode); if(!isFactoryMode){ setIsSimpleMode(false); } }} 
                 className={`
@@ -458,7 +451,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* 検索バー（工場モードでは特に目立たせる） */}
           <div className="relative w-full">
             <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none"><Search className="w-5 h-5 text-gray-400" /></div>
             <input 
@@ -472,12 +464,10 @@ export default function App() {
           </div>
         </header>
 
-        {/* 検索結果（工場モード）: 即座に写真と情報を大きく表示 */}
         {isFactoryMode && searchQuery && filteredList.length > 0 && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
             {filteredList.slice(0, 1).map(record => (
               <div key={record.id} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* 写真エリア（巨大表示） */}
                 <div className="bg-black border-2 border-gray-700 rounded-2xl overflow-hidden shadow-2xl relative aspect-square lg:aspect-auto lg:h-[70vh]">
                    {record.photos && record.photos.length > 0 ? (
                      <img src={record.photos[0]} alt="シミ箇所" className="w-full h-full object-contain" />
@@ -497,7 +487,6 @@ export default function App() {
                    )}
                 </div>
 
-                {/* 情報エリア（巨大文字） */}
                 <div className="flex flex-col gap-4">
                   <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700 shadow-xl flex-1">
                      <h2 className="text-gray-400 text-sm mb-2 font-bold uppercase tracking-wider">シミの種類・場所</h2>
@@ -553,7 +542,6 @@ export default function App() {
           </div>
         )}
 
-        {/* 検索結果（通常モード） */}
         {!isFactoryMode && searchQuery && filteredList.length > 0 && (
           <div className="mb-8 p-4 bg-white rounded-xl shadow border border-blue-200">
             <h3 className="text-sm font-bold text-gray-500 mb-2">検索結果: {filteredList.length}件</h3>
@@ -569,7 +557,6 @@ export default function App() {
           </div>
         )}
 
-        {/* --- 以下、通常モードの入力フォーム（工場モード時は非表示） --- */}
         {!isFactoryMode && (
           <>
             <div className="max-w-6xl mx-auto mb-8 animate-in slide-in-from-top-4 duration-500">
@@ -590,7 +577,20 @@ export default function App() {
               </div>
             </div>
 
-            {isSimpleMode && <div className="max-w-6xl mx-auto mb-6 bg-green-50 border border-green-200 p-4 rounded-xl flex items-start gap-3 animate-pulse"><Clock className="w-5 h-5 text-green-600" /><div><p className="font-bold text-green-800">スピード受付中</p><p className="text-xs text-green-700">「保存」ボタンと「レシート発行」ボタンが分かれています。</p></div></div>}
+            {isSimpleMode && (
+              <div className="max-w-6xl mx-auto mb-6 bg-emerald-50 border-l-8 border-emerald-500 p-5 rounded-r-xl flex items-center gap-4 shadow-md">
+                <div className="p-3 bg-white rounded-full text-emerald-600 shadow-sm">
+                  <Zap className="w-8 h-8 fill-emerald-100" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-emerald-900 text-xl mb-1">スピード受付モード</h3>
+                  <p className="text-emerald-800 font-bold text-md">
+                    入力は <span className="bg-white border-2 border-emerald-200 px-2 py-0.5 rounded text-emerald-700 mx-1">タグNo</span> と <span className="bg-white border-2 border-emerald-200 px-2 py-0.5 rounded text-emerald-700 mx-1">写真</span> だけでOK！
+                  </p>
+                  <p className="text-xs text-emerald-600 mt-1 opacity-80">※お名前も必須です。細かい指示は後から入力できます。</p>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-6xl mx-auto">
               <div className="space-y-8">
