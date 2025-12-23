@@ -84,7 +84,8 @@ const ReceiptModal = ({ data, photos, onClose }) => {
 
   return (
     <div className="fixed inset-0 bg-gray-900/90 z-[100] flex flex-col items-center justify-center p-4">
-      <div className="bg-white w-[350px] max-h-[85vh] overflow-y-auto p-4 shadow-2xl rounded-sm font-mono text-sm leading-relaxed receipt-paper">
+      {/* 80mm幅 (約302px) に設定してプレビュー表示 */}
+      <div className="bg-white w-[80mm] max-h-[85vh] overflow-y-auto p-4 shadow-2xl rounded-sm font-mono text-sm leading-relaxed receipt-paper mx-auto">
         <div className="text-center border-b-2 border-dashed border-gray-300 pb-4 mb-4">
           <h2 className="text-xl font-bold mb-1">お預かり伝票（兼タグ）</h2>
           <p className="text-xs text-gray-500">{new Date().toLocaleString()}</p>
@@ -129,11 +130,31 @@ const ReceiptModal = ({ data, photos, onClose }) => {
            <p className="text-xs">お渡し予定日</p><p className="text-xl font-bold">{data.dueDate}</p>
         </div>
       </div>
-      <div className="mt-6 flex gap-4 no-print">
+      <div className="mt-6 flex gap-4 no-print justify-center">
         <button onClick={onClose} className="px-6 py-3 bg-gray-600 text-white rounded-full font-bold">閉じる</button>
         <button onClick={() => window.print()} className="px-8 py-3 bg-blue-600 text-white rounded-full font-bold shadow-lg flex items-center"><Printer className="mr-2 w-5 h-5" /> 印刷する</button>
       </div>
-      <style>{`@media print { body * { visibility: hidden; } .receipt-paper, .receipt-paper * { visibility: visible; } .receipt-paper { position: absolute; left: 0; top: 0; width: 80mm; box-shadow: none; overflow: visible; max-height: none; } .no-print { display: none; } }`}</style>
+      
+      {/* 印刷用スタイル調整 */}
+      <style>{`
+        @media print {
+          @page { margin: 0; size: auto; }
+          body * { visibility: hidden; }
+          .receipt-paper, .receipt-paper * { visibility: visible; }
+          .receipt-paper {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 80mm !important; /* 80mm幅を強制 */
+            margin: 0 !important;
+            padding: 10px !important; /* 少し余白を持たせる */
+            box-shadow: none;
+            overflow: visible;
+            max-height: none;
+          }
+          .no-print { display: none; }
+        }
+      `}</style>
     </div>
   );
 };
