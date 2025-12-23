@@ -462,7 +462,11 @@ export default function App() {
     if (window.confirm("読み込みますか？")) {
       const { id, saveDate, photoData, photos: savedPhotos, createdAt, ...rest } = record;
       setEditingId(id);
-      setFormData(rest);
+      
+      // ★修正箇所: 既存データ(rest)をinitialDataにマージすることで
+      // 古いデータに新しい項目(accessories等)がない場合でもundefinedにならず初期値が入るようにする
+      setFormData({ ...initialData, ...rest });
+
       setPhotos(savedPhotos && Array.isArray(savedPhotos) ? savedPhotos : photoData ? [photoData] : []);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -504,7 +508,8 @@ export default function App() {
             <span className="block text-xs font-bold bg-gray-200 px-1">アイテム / ブランド / 付属品</span>
             <div className="p-2 text-lg">
               {formData.itemType} / {formData.brand}<br/>
-              <span className="text-sm">付属品: {formData.accessories.length > 0 ? formData.accessories.join('、') : 'なし'}</span>
+              {/* 安全なアクセス: (formData.accessories || []) */}
+              <span className="text-sm">付属品: {(formData.accessories || []).length > 0 ? (formData.accessories || []).join('、') : 'なし'}</span>
             </div>
           </div>
           <div className="border border-gray-400 p-2">
