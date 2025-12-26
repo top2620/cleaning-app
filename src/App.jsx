@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Save, Camera, Printer, CheckCircle, AlertTriangle, User, Scissors, Shirt, X, Trash2, History, FileText, Check, ChevronRight, RefreshCw, Cloud, CloudOff, Search, Tag, Maximize2, Image as ImageIcon, Mic, MicOff, Edit3, MapPin, Zap, Star, ToggleLeft, ToggleRight, Clock, Calendar, Layers, Palette, Receipt, DollarSign, Factory, ZoomIn, ListChecks, AlertCircle, Focus, Upload } from 'lucide-react';
+import { Save, Camera, Printer, CheckCircle, AlertTriangle, User, Scissors, Shirt, X, Trash2, History, FileText, Check, ChevronRight, RefreshCw, Cloud, CloudOff, Search, Tag, Maximize2, Image as ImageIcon, Mic, MicOff, Edit3, MapPin, Zap, Star, ToggleLeft, ToggleRight, Clock, Calendar, Layers, Palette, Receipt, DollarSign, Factory, ZoomIn, ListChecks, AlertCircle, Focus, Upload, Image } from 'lucide-react';
 
 // Firebase部品
 import { initializeApp } from "firebase/app";
@@ -126,46 +126,57 @@ const QUICK_PRESETS = [
 // ★カスタムカメラコンポーネント（修正版）
 const CameraModal = ({ onCapture, onClose }) => {
   const videoRef = useRef(null);
+  const fileInputRef = useRef(null); // ファイル選択用のref
   const [hasPermission, setHasPermission] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let stream = null;
+    let mounted = true;
+
     async function startCamera() {
       try {
-        // まず背面カメラを優先して試行
-        let constraints = {
+        setIsLoading(true);
+        // リアカメラを試行
+        const constraints = {
           video: { 
-            facingMode: 'environment', 
-            width: { ideal: 1280 }, 
+            facingMode: 'environment',
+            width: { ideal: 1280 },
             height: { ideal: 720 }
-            // focusMode は削除（互換性向上のため）
           }
         };
         
         try {
           stream = await navigator.mediaDevices.getUserMedia(constraints);
-        } catch (e) {
-          console.warn("背面カメラの取得に失敗。標準設定で再試行します。", e);
-          // 失敗したら制約なしで再試行（Webカメラや前面カメラなど）
+        } catch (err) {
+          console.warn("リアカメラ起動失敗、標準カメラで再試行", err);
+          // 失敗したら制約なしで再試行
           stream = await navigator.mediaDevices.getUserMedia({ video: true });
         }
 
-        if (videoRef.current) {
+        if (mounted && videoRef.current) {
           videoRef.current.srcObject = stream;
+          // ★重要: 明示的に再生を開始する（これが真っ暗対策）
+          videoRef.current.onloadedmetadata = () => {
+            if(videoRef.current) videoRef.current.play().catch(e => console.error("Play error:", e));
+          };
           setHasPermission(true);
         }
       } catch (err) {
-        console.error(err);
-        alert("カメラを起動できませんでした。\n「ファイルを選択/標準カメラ」ボタンをご利用ください。");
-        onClose();
+        console.error("Camera access error:", err);
+        // エラー時はアラートを出さず、画面内のUIで代替手段を案内する
       } finally {
-        setIsLoading(false);
+        if (mounted) setIsLoading(false);
       }
     }
+
     startCamera();
-    return () => { if (stream) stream.getTracks().forEach(track => track.stop()); };
-  }, [onClose]);
+
+    return () => {
+      mounted = false;
+      if (stream) stream.getTracks().forEach(track => track.stop());
+    };
+  }, []);
 
   const capture = () => {
     const video = videoRef.current;
@@ -189,12 +200,70 @@ const CameraModal = ({ onCapture, onClose }) => {
     onClose();
   };
 
+  // ファイル選択ハンドラ（カメラが動かない場合の救済策）
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+         const img = new Image();
+         img.onload = () => {
+             const canvas = document.createElement('canvas');
+             const MAX_WIDTH = 800;
+             const scale = MAX_WIDTH / img.width;
+             canvas.width = MAX_WIDTH;
+             canvas.height = img.height * scale;
+             const ctx = canvas.getContext('2d');
+             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+             onCapture(canvas.toDataURL('image/jpeg', 0.7));
+             onClose();
+         };
+         img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black z-[1200] flex flex-col items-center justify-center p-4">
-      {isLoading && <div className="text-white flex flex-col items-center gap-2"><RefreshCw className="animate-spin" /> カメラ起動中...</div>}
-      {hasPermission && (
-        <div className="relative w-full h-full flex flex-col">
-          <video ref={videoRef} autoPlay playsInline className="flex-1 object-cover rounded-lg bg-gray-900" />
+      
+      {/* 閉じるボタン（右上） */}
+      <button 
+        onClick={onClose} 
+        className="absolute top-4 right-4 p-3 bg-gray-800 text-white rounded-full z-50 hover:bg-gray-700"
+      >
+        <X className="w-6 h-6" />
+      </button>
+
+      {/* ローディング表示 */}
+      {isLoading && (
+        <div className="text-white flex flex-col items-center gap-4 z-50">
+          <RefreshCw className="animate-spin w-10 h-10" /> 
+          <p>カメラを起動中...</p>
+        </div>
+      )}
+      
+      <div className="relative w-full h-full flex flex-col justify-center items-center">
+        {/* ビデオ表示エリア */}
+        <video 
+          ref={videoRef} 
+          playsInline 
+          muted 
+          autoPlay 
+          className={`flex-1 w-full h-full object-cover rounded-lg bg-gray-900 ${isLoading ? 'hidden' : 'block'}`} 
+        />
+        
+        {/* カメラが許可されなかった場合の表示 */}
+        {!hasPermission && !isLoading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-white bg-gray-900 p-8 text-center">
+            <AlertTriangle className="w-16 h-16 text-yellow-500 mb-4" />
+            <p className="mb-6 font-bold">カメラにアクセスできませんでした</p>
+            <p className="text-sm text-gray-400 mb-8">ブラウザの設定を確認するか、<br/>下のボタンから写真を選んでください。</p>
+          </div>
+        )}
+
+        {/* 撮影ガイド枠（カメラが動いているときのみ） */}
+        {hasPermission && (
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
             <div className="w-64 h-64 border-2 border-dashed border-white/60 rounded-lg relative shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]">
                <div className="absolute -top-8 left-0 right-0 text-center text-white text-xs font-bold bg-black/50 py-1 px-3 rounded-full mx-auto w-fit">
@@ -202,15 +271,40 @@ const CameraModal = ({ onCapture, onClose }) => {
                </div>
             </div>
           </div>
-          <div className="bg-black p-6 flex justify-around items-center">
-            <button onClick={onClose} className="p-4 bg-gray-800 text-white rounded-full"><X /></button>
-            <button onClick={capture} className="w-20 h-20 bg-white rounded-full border-4 border-gray-400 flex items-center justify-center active:scale-90 transition-transform">
+        )}
+
+        {/* コントロールエリア */}
+        <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/80 to-transparent flex flex-col items-center gap-4">
+          
+          {/* シャッターボタン (カメラ有効時のみ) */}
+          {hasPermission && (
+            <button 
+              onClick={capture} 
+              className="w-20 h-20 bg-white rounded-full border-4 border-gray-400 flex items-center justify-center active:scale-90 transition-transform shadow-lg"
+            >
               <div className="w-16 h-16 bg-red-600 rounded-full border-2 border-white"></div>
             </button>
-            <div className="w-12 h-12"></div>
+          )}
+
+          {/* 救済策: ファイル選択ボタン */}
+          <div className="mt-2">
+            <input 
+              type="file" 
+              accept="image/*" 
+              ref={fileInputRef} 
+              onChange={handleFileSelect} 
+              className="hidden" 
+            />
+            <button 
+              onClick={() => fileInputRef.current.click()} 
+              className="flex items-center gap-2 text-white text-sm bg-gray-800/80 px-4 py-2 rounded-full hover:bg-gray-700 transition-colors"
+            >
+              <Upload className="w-4 h-4" />
+              {hasPermission ? "またはファイルを選択" : "ファイルを選択 / 標準カメラ起動"}
+            </button>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 };
@@ -250,7 +344,7 @@ const SelectButton = ({ selected, onClick, label, subLabel }) => (
   </button>
 );
 
-// レシートモーダル
+// レシートモーダル（80mm幅）
 const ReceiptModal = ({ data, photos, onClose }) => {
   const safeAccessories = data.accessories || [];
   const safeNeeds = data.needs || [];
