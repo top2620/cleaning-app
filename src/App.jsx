@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Save, Camera, Printer, CheckCircle, AlertTriangle, User, Scissors, Shirt, X, Trash2, History, FileText, Check, ChevronRight, RefreshCw, Cloud, CloudOff, Search, Tag, Maximize2, Image as ImageIcon, Mic, MicOff, Edit3, MapPin, Zap, Star, ToggleLeft, ToggleRight, Clock, Calendar, Layers, Palette, Receipt, DollarSign, Factory, ZoomIn, ListChecks, AlertCircle, Focus } from 'lucide-react';
+import { Save, Camera, Printer, CheckCircle, AlertTriangle, User, Scissors, Shirt, X, Trash2, History, FileText, Check, ChevronRight, RefreshCw, Cloud, CloudOff, Search, Tag, Maximize2, Image as ImageIcon, Mic, MicOff, Edit3, MapPin, Zap, Star, ToggleLeft, ToggleRight, Clock, Calendar, Layers, Palette, Receipt, DollarSign, Factory, ZoomIn, ListChecks, AlertCircle, Focus, Upload } from 'lucide-react';
 
 // Firebase部品
 import { initializeApp } from "firebase/app";
@@ -123,7 +123,7 @@ const QUICK_PRESETS = [
   },
 ];
 
-// ★カスタムカメラコンポーネント
+// ★カスタムカメラコンポーネント（修正版）
 const CameraModal = ({ onCapture, onClose }) => {
   const videoRef = useRef(null);
   const [hasPermission, setHasPermission] = useState(false);
@@ -133,22 +133,31 @@ const CameraModal = ({ onCapture, onClose }) => {
     let stream = null;
     async function startCamera() {
       try {
-        const constraints = {
+        // まず背面カメラを優先して試行
+        let constraints = {
           video: { 
             facingMode: 'environment', 
             width: { ideal: 1280 }, 
-            height: { ideal: 720 },
-            focusMode: 'continuous' 
+            height: { ideal: 720 }
+            // focusMode は削除（互換性向上のため）
           }
         };
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+        } catch (e) {
+          console.warn("背面カメラの取得に失敗。標準設定で再試行します。", e);
+          // 失敗したら制約なしで再試行（Webカメラや前面カメラなど）
+          stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        }
+
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           setHasPermission(true);
         }
       } catch (err) {
         console.error(err);
-        alert("カメラの起動に失敗しました。");
+        alert("カメラを起動できませんでした。\n「ファイルを選択/標準カメラ」ボタンをご利用ください。");
         onClose();
       } finally {
         setIsLoading(false);
@@ -241,7 +250,7 @@ const SelectButton = ({ selected, onClick, label, subLabel }) => (
   </button>
 );
 
-// レシートモーダル（80mm幅・修正版）
+// レシートモーダル
 const ReceiptModal = ({ data, photos, onClose }) => {
   const safeAccessories = data.accessories || [];
   const safeNeeds = data.needs || [];
@@ -368,6 +377,7 @@ export default function App() {
   const [showReceipt, setShowReceipt] = useState(false);
   
   const recognitionRef = useRef(null);
+  const fileInputRef = useRef(null); // Refを追加
 
   useEffect(() => {
     if (!db) return;
@@ -471,6 +481,34 @@ export default function App() {
   const onCapturePhoto = (dataUrl) => {
     setPhotos(prev => [...prev, dataUrl]);
   };
+  
+  // 標準のファイル選択を使用するためのハンドラ
+  const handleNativeCamera = () => {
+    fileInputRef.current.click();
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+         const img = new Image();
+         img.onload = () => {
+             const canvas = document.createElement('canvas');
+             const MAX_WIDTH = 800;
+             const scale = MAX_WIDTH / img.width;
+             canvas.width = MAX_WIDTH;
+             canvas.height = img.height * scale;
+             const ctx = canvas.getContext('2d');
+             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+             onCapturePhoto(canvas.toDataURL('image/jpeg', 0.7));
+         };
+         img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+    e.target.value = ''; // Reset input
+  };
 
   return (
     <div className={`min-h-screen font-sans ${isFactoryMode ? 'bg-[#0f0f0f] text-gray-200' : 'bg-slate-100 text-gray-800'} overflow-x-hidden`}>
@@ -478,6 +516,16 @@ export default function App() {
       {isCameraActive && <CameraModal onCapture={onCapturePhoto} onClose={() => setIsCameraActive(false)} />}
       {editingPhotoIndex !== null && <PhotoMarkerModal photoSrc={photos[editingPhotoIndex]} onClose={() => setEditingPhotoIndex(null)} onSave={(data) => setPhotos(p => {const n=[...p]; n[editingPhotoIndex]=data; return n;})} />}
       {showReceipt && <ReceiptModal data={formData} photos={photos} onClose={() => setShowReceipt(false)} />}
+      
+      {/* 隠しファイル入力（標準カメラ用） */}
+      <input 
+        type="file" 
+        accept="image/*" 
+        capture="environment" 
+        ref={fileInputRef} 
+        onChange={handleFileChange} 
+        className="hidden" 
+      />
 
       <div className="print:hidden p-2 sm:p-4 pb-32 max-w-full">
         <header className={`flex flex-col gap-4 mb-6 p-4 sm:p-5 rounded-2xl shadow-lg sticky top-2 z-[200] backdrop-blur-sm bg-opacity-95 transition-colors ${isFactoryMode ? 'bg-black border-b border-gray-800' : 'bg-gradient-to-r from-blue-700 to-indigo-800 text-white'}`}>
@@ -662,14 +710,24 @@ export default function App() {
                         </div>
                       )}
                       {photos.length < 3 && (
-                        <button 
-                          onClick={() => setIsCameraActive(true)}
-                          className="w-full py-8 bg-gradient-to-br from-gray-50 to-gray-100 border-4 border-dashed border-gray-300 text-gray-500 rounded-2xl flex flex-col items-center justify-center gap-2 hover:border-gray-400 transition-all shadow-inner touch-manipulation group"
-                        >
-                          <Camera className="w-12 h-12 text-blue-500 group-active:scale-110 transition-transform" />
-                          <span className="font-bold text-lg">カメラを起動 ({photos.length}/3)</span>
-                          <span className="text-xs opacity-60 font-bold flex items-center gap-1"><Focus className="w-3 h-3" /> ガイドに合わせて撮影</span>
-                        </button>
+                        <div className="flex flex-col gap-2">
+                          <button 
+                            onClick={() => setIsCameraActive(true)}
+                            className="w-full py-8 bg-gradient-to-br from-gray-50 to-gray-100 border-4 border-dashed border-gray-300 text-gray-500 rounded-2xl flex flex-col items-center justify-center gap-2 hover:border-gray-400 transition-all shadow-inner touch-manipulation group"
+                          >
+                            <Camera className="w-12 h-12 text-blue-500 group-active:scale-110 transition-transform" />
+                            <span className="font-bold text-lg">カメラを起動 ({photos.length}/3)</span>
+                            <span className="text-xs opacity-60 font-bold flex items-center gap-1"><Focus className="w-3 h-3" /> ガイドに合わせて撮影</span>
+                          </button>
+                          
+                          {/* ★標準カメラ/ファイル選択ボタン（救済用） */}
+                          <button 
+                            onClick={handleNativeCamera}
+                            className="text-xs text-gray-400 hover:text-gray-600 underline py-2 text-center"
+                          >
+                            ※カメラが起動しない場合はこちら（ファイル選択/標準カメラ）
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
