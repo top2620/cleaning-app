@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Save, Camera, Printer, CheckCircle, AlertTriangle, User, Scissors, Shirt, X, Trash2, History, FileText, Check, ChevronRight, RefreshCw, Cloud, CloudOff, Search, Tag, Maximize2, Image as ImageIcon, Mic, MicOff, Edit3, MapPin, Zap, Star, ToggleLeft, ToggleRight, Clock, Calendar, Layers, Palette, Receipt, DollarSign, Factory, ZoomIn, ListChecks, AlertCircle, Focus, Upload, Image } from 'lucide-react';
+import { Save, Camera, Printer, CheckCircle, AlertTriangle, User, Scissors, Shirt, X, Trash2, History, FileText, Check, ChevronRight, RefreshCw, Cloud, CloudOff, Search, Tag, Maximize2, Image as ImageIcon, Mic, MicOff, Edit3, MapPin, Zap, Star, ToggleLeft, ToggleRight, Clock, Calendar, Layers, Palette, Receipt, DollarSign, Factory, ZoomIn, ListChecks, AlertCircle, Focus, Upload } from 'lucide-react';
 
 // Firebase部品
 import { initializeApp } from "firebase/app";
@@ -156,7 +156,7 @@ const CameraModal = ({ onCapture, onClose }) => {
 
         if (mounted && videoRef.current) {
           videoRef.current.srcObject = stream;
-          // ★重要: 明示的に再生を開始する（これが真っ暗対策）
+          // ★重要: 明示的に再生を開始する
           videoRef.current.onloadedmetadata = () => {
             if(videoRef.current) videoRef.current.play().catch(e => console.error("Play error:", e));
           };
@@ -164,7 +164,6 @@ const CameraModal = ({ onCapture, onClose }) => {
         }
       } catch (err) {
         console.error("Camera access error:", err);
-        // エラー時はアラートを出さず、画面内のUIで代替手段を案内する
       } finally {
         if (mounted) setIsLoading(false);
       }
@@ -200,7 +199,7 @@ const CameraModal = ({ onCapture, onClose }) => {
     onClose();
   };
 
-  // ファイル選択ハンドラ（カメラが動かない場合の救済策）
+  // ファイル選択ハンドラ
   const handleFileSelect = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -262,11 +261,11 @@ const CameraModal = ({ onCapture, onClose }) => {
           </div>
         )}
 
-        {/* 撮影ガイド枠（カメラが動いているときのみ） */}
+        {/* 撮影ガイド枠（カメラが動いているときのみ） - サイズ拡大 */}
         {hasPermission && (
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-            <div className="w-64 h-64 border-2 border-dashed border-white/60 rounded-lg relative shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]">
-               <div className="absolute -top-8 left-0 right-0 text-center text-white text-xs font-bold bg-black/50 py-1 px-3 rounded-full mx-auto w-fit">
+            <div className="w-80 h-96 border-2 border-dashed border-white/80 rounded-2xl relative shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]">
+               <div className="absolute -top-10 left-0 right-0 text-center text-white text-sm font-bold bg-black/50 py-1.5 px-4 rounded-full mx-auto w-fit">
                  枠に合わせて撮影
                </div>
             </div>
@@ -280,9 +279,9 @@ const CameraModal = ({ onCapture, onClose }) => {
           {hasPermission && (
             <button 
               onClick={capture} 
-              className="w-20 h-20 bg-white rounded-full border-4 border-gray-400 flex items-center justify-center active:scale-90 transition-transform shadow-lg"
+              className="w-24 h-24 bg-white rounded-full border-4 border-gray-400 flex items-center justify-center active:scale-90 transition-transform shadow-lg"
             >
-              <div className="w-16 h-16 bg-red-600 rounded-full border-2 border-white"></div>
+              <div className="w-20 h-20 bg-red-600 rounded-full border-2 border-white"></div>
             </button>
           )}
 
@@ -572,6 +571,14 @@ export default function App() {
     }
   };
 
+  // ★ 写真削除関数：削除後に編集モードを閉じる
+  const removePhoto = (index) => {
+    setPhotos(prev => prev.filter((_, i) => i !== index));
+    if (editingPhotoIndex === index) {
+      setEditingPhotoIndex(null);
+    }
+  };
+
   const onCapturePhoto = (dataUrl) => {
     setPhotos(prev => [...prev, dataUrl]);
   };
@@ -797,7 +804,19 @@ export default function App() {
                           {photos.map((p, index) => (
                             <div key={index} className="relative aspect-square bg-gray-100 rounded-xl overflow-hidden border-2 border-gray-200 group shadow-sm">
                               <img src={p} alt={`写真 ${index + 1}`} className="w-full h-full object-contain cursor-pointer" onClick={() => setEditingPhotoIndex(index)} />
-                              <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); removePhoto(index); }} className="absolute top-0 right-0 p-3 z-[150] text-white bg-red-600 rounded-bl-xl shadow-xl active:bg-red-800 transition-colors"><Trash2 className="w-5 h-5" /></button>
+                              <button 
+                                type="button"
+                                onClick={(e) => { 
+                                  e.preventDefault(); 
+                                  e.stopPropagation(); 
+                                  if(window.confirm('この写真を削除しますか？')){
+                                    removePhoto(index); 
+                                  }
+                                }} 
+                                className="absolute top-0 right-0 p-4 z-[20] text-white bg-red-600 rounded-bl-2xl shadow-lg hover:bg-red-700 active:bg-red-800 transition-all touch-manipulation"
+                              >
+                                <Trash2 className="w-6 h-6" />
+                              </button>
                               <div className="absolute bottom-1 right-1 bg-blue-600 text-white p-1 rounded-full text-[10px] pointer-events-none shadow-md"><Edit3 className="w-3 h-3" /></div>
                             </div>
                           ))}
