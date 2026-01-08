@@ -14,8 +14,16 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 import { getFirestore, collection, addDoc, deleteDoc, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp } from "firebase/firestore";
 
 // =================================================================
-// 1. 補助関数・定数定義
+// 1. Firebase初期化 & 補助関数
 // =================================================================
+
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+const rawAppId = typeof __app_id !== 'undefined' ? __app_id : 'cleaning-dx-v2';
+const appId = rawAppId.replace(/\//g, '_');
 
 const getTodayDateStr = () => new Date().toISOString().split('T')[0];
 
@@ -30,13 +38,12 @@ const getFutureDateStr = (days) => {
   return d.toISOString().split('T')[0];
 };
 
-// ★音声再生関数
+// 音声再生
 const playSaveVoice = () => {
   if ('speechSynthesis' in window) {
     const uttr = new SpeechSynthesisUtterance("お客様のカルテを保存しました");
     uttr.lang = "ja-JP";
-    uttr.volume = 0.5; // 音量控えめ
-    uttr.rate = 1.0;
+    uttr.volume = 0.5;
     window.speechSynthesis.speak(uttr);
   }
 };
@@ -59,7 +66,7 @@ const INITIAL_FORM_STATE = {
 };
 
 // =================================================================
-// 2. イラストコンポーネント (SVG)
+// 2. UIコンポーネント (イラスト・カード・ボタン)
 // =================================================================
 
 const IllustrationShirt = () => (
@@ -69,38 +76,41 @@ const IllustrationShirt = () => (
     <circle cx="50" cy="45" r="1.5" fill="#3B82F6" /><circle cx="50" cy="60" r="1.5" fill="#3B82F6" />
   </svg>
 );
+
 const IllustrationSuit = () => (
   <svg viewBox="0 0 100 100" className="w-12 h-12 drop-shadow-md">
     <rect x="22" y="25" width="56" height="65" rx="4" fill="#F1F5F9" stroke="#475569" strokeWidth="2.5" />
     <path d="M50 25 L22 25 L40 60 L50 45 L60 60 L78 25 Z" fill="#E2E8F0" stroke="#475569" strokeWidth="2" />
   </svg>
 );
+
 const IllustrationPants = () => (
   <svg viewBox="0 0 100 100" className="w-12 h-12 drop-shadow-md">
     <path d="M30 15 H70 L75 85 H55 L50 40 L45 85 H25 Z" fill="#EEF2FF" stroke="#4F46E5" strokeWidth="2.5" />
   </svg>
 );
+
 const IllustrationSweater = () => (
   <svg viewBox="0 0 100 100" className="w-12 h-12 drop-shadow-md">
     <path d="M20 35 Q50 25 80 35 L85 85 Q50 90 15 85 Z" fill="#FFF1F2" stroke="#E11D48" strokeWidth="2.5" />
   </svg>
 );
 
-// ★修正: セーターのitemTypeを修正、コースをスタンダードに変更
 const QUICK_PRESETS = [
   { id: 'shirt', icon: <IllustrationShirt />, title: 'ワイシャツ', style: 'border-blue-200 bg-blue-50/50 text-blue-900', data: { itemType: "ワイシャツ", processInstruction: "スタンダード", finishing: "ハンガー仕上げ", specialTreatments: ["エリ・ソデ重点"] } },
   { id: 'suit', icon: <IllustrationSuit />, title: 'スーツ上', style: 'border-slate-300 bg-slate-50/50 text-slate-900', data: { itemType: "スーツ上", processInstruction: "スタンダード", finishing: "ソフト仕上げ", specialTreatments: [] } },
   { id: 'pants', icon: <IllustrationPants />, title: 'ズボン', style: 'border-indigo-200 bg-indigo-50/50 text-indigo-900', data: { itemType: "ズボン", processInstruction: "スタンダード", finishing: "センタープレス", specialTreatments: [] } },
-  { id: 'knit', icon: <IllustrationSweater />, title: 'セーター', style: 'border-rose-200 bg-rose-50/50 text-rose-900', data: { itemType: "セーター", processInstruction: "スタンダード", finishing: "たたみ仕上げ", specialTreatments: ["ネット"] } },
+  { id: 'knit', icon: <IllustrationSweater />, title: 'セーター', style: 'border-rose-200 bg-rose-50/50 text-rose-900', data: { itemType: "セーター-ニット", processInstruction: "スタンダード", finishing: "たたみ仕上げ", specialTreatments: ["ネット"] } },
 ];
 
-const TEXT_TEMPLATES = ["襟の黄ばみ", "袖口汚れ", "食べこぼし", "インク染み", "ボタン欠損", "ほつれ", "色落ち注意"];
+const TEXT_TEMPLATES = [
+  "襟の黄ばみ", "袖口汚れ", "食べこぼし", "インク染み", 
+  "ボタン欠損", "ほつれ", "色落ち注意", "汗ジミ", 
+  "変色あり", "穴あき", "破れ", "毛玉多め", 
+  "縮みあり", "テカリ", "接着剥がれ", "付属品なし"
+];
 const COLORS_LIST = ["黒", "紺", "グレー", "白", "茶", "ベージュ", "ストライプ", "チェック"];
 const ACCESSORIES_LIST = ["ベルト", "フード", "ライナー", "ファー", "リボン", "ブローチ"];
-
-// =================================================================
-// 3. UI部品コンポーネント (Appより先に定義)
-// =================================================================
 
 const SelectButton = ({ selected, onClick, label }) => (
   <button
@@ -152,6 +162,91 @@ const CustomAlert = ({ show, title, message, type, onConfirm, onCancel }) => {
   );
 };
 
+// ★修正: デカ文字入力モーダル (内部State管理でIME問題を解決)
+const BigInputModal = ({ title, value: initialValue, onChange, onClose, placeholder, searchResults, onSelectResult, mode }) => {
+  const [localValue, setLocalValue] = useState(initialValue);
+
+  useEffect(() => {
+    setLocalValue(initialValue);
+  }, []);
+
+  const handleChange = (e) => {
+    const val = e.target.value;
+    setLocalValue(val);
+    
+    // 検索モードの場合はリアルタイムに親へ通知
+    if (mode === 'search') {
+      onChange(val);
+    }
+  };
+
+  const handleConfirm = () => {
+    // 名前モードの場合はここで確定して親へ通知
+    if (mode === 'name') {
+      onChange(localValue);
+    }
+    onClose();
+  };
+
+  const handleClear = () => {
+    setLocalValue("");
+    if (mode === 'search') {
+      onChange("");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 z-[3000] flex flex-col justify-end animate-in fade-in">
+      <div className="flex-1" onClick={onClose}></div>
+      <div className="bg-white rounded-t-[3rem] p-6 shadow-2xl animate-in slide-in-from-bottom duration-300 max-h-[90vh] flex flex-col">
+        <div className="flex justify-between items-center mb-4 px-2">
+           <div className="text-sm font-bold text-gray-400 uppercase tracking-widest">{title}</div>
+           <button onClick={onClose} className="p-2 bg-gray-100 rounded-full text-gray-500"><X /></button>
+        </div>
+        
+        {/* 入力プレビュー: localValueを表示 */}
+        <div className="text-4xl font-bold text-gray-800 bg-gray-50 w-full py-6 px-4 text-center rounded-3xl border-2 border-blue-100 shadow-inner min-h-[80px] break-words mb-4">
+          {localValue || <span className="text-gray-300 text-2xl">{placeholder}</span>}
+        </div>
+
+        {/* 検索結果（検索モード時のみ） */}
+        {mode === 'search' && searchResults && searchResults.length > 0 && (
+          <div className="mb-4 flex-1 overflow-y-auto min-h-[150px] bg-yellow-50 rounded-2xl p-2 border border-yellow-200">
+            <div className="text-xs font-bold text-yellow-600 mb-2 px-2">候補が見つかりました</div>
+            {searchResults.map(h => (
+              <button key={h.id} onClick={() => onSelectResult(h)} className="w-full bg-white p-3 rounded-xl shadow-sm border border-yellow-100 mb-2 text-left flex justify-between items-center active:bg-yellow-100">
+                <div>
+                  <div className="text-xs font-black text-blue-600">Tag {h.tagNumber}</div>
+                  <div className="font-bold">{h.customerName}</div>
+                  {h.photos?.length > 0 && <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full mt-1 inline-block">📷 {h.photos.length}枚</span>}
+                </div>
+                <div className="text-xs text-gray-400 font-bold">{h.itemType}</div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="mb-4">
+          <input
+            type="text"
+            className="w-full p-4 text-xl border-2 border-blue-500 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-200"
+            value={localValue}
+            onChange={handleChange}
+            placeholder="ここに入力..."
+            autoFocus
+          />
+        </div>
+
+        <div className="flex gap-3 pb-8">
+          <button type="button" onClick={handleClear} className="py-4 px-6 bg-gray-100 text-gray-500 font-bold rounded-2xl">クリア</button>
+          <button type="button" onClick={handleConfirm} className="flex-1 py-4 bg-blue-600 text-white font-black text-xl rounded-2xl shadow-xl active:scale-95">決定</button>
+        </div>
+        <div className="h-[40vh] w-full bg-white sm:hidden"></div> 
+      </div>
+    </div>
+  );
+};
+
 const NumPad = ({ value, onChange, onClose }) => {
   const handleNum = (n) => {
     const raw = value ? value.toString().replace(/-/g, '') : '';
@@ -197,12 +292,11 @@ const CameraModal = ({ onCapture, onClose }) => {
     async function startCamera() {
       try {
         setLoading(true);
-        // フルHD画質
         const constraints = { video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } };
         try { stream = await navigator.mediaDevices.getUserMedia(constraints); } catch { stream = await navigator.mediaDevices.getUserMedia({ video: true }); }
         if (mounted && videoRef.current) {
           videoRef.current.srcObject = stream;
-          videoRef.current.onloadedmetadata = () => videoRef.current.play().catch(e => console.error(e));
+          videoRef.current.onloadedmetadata = () => videoRef.current.play().catch(console.error);
         }
       } catch (e) { console.error(e); } finally { if (mounted) setLoading(false); }
     }
@@ -322,17 +416,11 @@ const PhotoMarkerModal = ({ photoSrc, onClose, onSave }) => {
   );
 };
 
-// ★改良: レシートモーダル (B5サイズ & カラー/モノクロ対応)
 const ReceiptModal = ({ data, photos, onClose }) => {
   const [isMonochrome, setIsMonochrome] = useState(false);
-
   return (
     <div className="fixed inset-0 bg-black/90 z-[5000] flex flex-col items-center justify-center p-4">
-      {/* プレビューエリア (B5比率に近い形) */}
-      <div 
-        className={`bg-white w-[182mm] max-w-full p-8 shadow-2xl rounded-sm font-mono text-sm leading-relaxed receipt-paper mx-auto my-auto relative overflow-y-auto max-h-[80vh] ${isMonochrome ? 'grayscale' : ''}`}
-        style={{ aspectRatio: '182/257' }}
-      >
+      <div className={`bg-white w-[182mm] max-w-full p-8 shadow-2xl rounded-sm font-mono text-sm leading-relaxed receipt-paper mx-auto my-auto relative overflow-y-auto max-h-[80vh] ${isMonochrome ? 'grayscale' : ''}`} style={{ aspectRatio: '182/257' }}>
         <div className="text-center border-b-2 border-black pb-4 mb-6 font-black text-2xl">お預かり伝票（兼タグ）</div>
         <div className="space-y-4 mb-6 border-b border-black pb-6">
           <div className="flex justify-between text-lg"><span>管理No:</span><span className="font-bold">{data.manageNo}</span></div>
@@ -362,50 +450,14 @@ const ReceiptModal = ({ data, photos, onClose }) => {
            <p className="text-5xl font-black tracking-tighter">{data.dueDate}</p>
         </div>
       </div>
-      
-      {/* 印刷ボタンエリア */}
       <div className="mt-8 flex flex-col gap-4 w-full max-w-[400px] no-print">
         <div className="flex gap-3">
-          <button 
-            type="button" 
-            onClick={(e) => {
-              e.preventDefault();
-              setIsMonochrome(false);
-              setTimeout(() => window.print(), 100);
-            }} 
-            className="flex-1 py-4 bg-blue-600 text-white rounded-[2rem] font-black text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"
-          >
-            <Printer /> カラー印刷
-          </button>
-          <button 
-            type="button" 
-            onClick={(e) => {
-              e.preventDefault();
-              setIsMonochrome(true);
-              setTimeout(() => window.print(), 100);
-            }} 
-            className="flex-1 py-4 bg-gray-800 text-white rounded-[2rem] font-black text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"
-          >
-            <Printer /> モノクロ印刷
-          </button>
+          <button type="button" onClick={(e) => { e.preventDefault(); setIsMonochrome(false); setTimeout(() => window.print(), 100); }} className="flex-1 py-4 bg-blue-600 text-white rounded-[2rem] font-black text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"><Printer /> カラー印刷</button>
+          <button type="button" onClick={(e) => { e.preventDefault(); setIsMonochrome(true); setTimeout(() => window.print(), 100); }} className="flex-1 py-4 bg-gray-800 text-white rounded-[2rem] font-black text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"><Printer /> モノクロ印刷</button>
         </div>
         <button type="button" onClick={(e) => {e.preventDefault(); onClose();}} className="w-full py-4 bg-gray-600 text-white rounded-2xl font-black">閉じる</button>
       </div>
-      
-      {/* 印刷用CSS: B5サイズ指定 & モノクロ制御 */}
-      <style>{`
-        @media print { 
-          @page { size: B5; margin: 0; }
-          body * { visibility: hidden; } 
-          .receipt-paper, .receipt-paper * { visibility: visible; } 
-          .receipt-paper { 
-            position: absolute; left: 0; top: 0; width: 100% !important; height: 100% !important; 
-            box-shadow: none; margin: 0; padding: 10mm; 
-            filter: ${isMonochrome ? 'grayscale(100%)' : 'none'} !important;
-          } 
-          .no-print { display: none; } 
-        }
-      `}</style>
+      <style>{`@media print { @page { size: B5; margin: 0; } body * { visibility: hidden; } .receipt-paper, .receipt-paper * { visibility: visible; } .receipt-paper { position: absolute; left: 0; top: 0; width: 100% !important; height: 100% !important; box-shadow: none; margin: 0; padding: 10mm; filter: ${isMonochrome ? 'grayscale(100%)' : 'none'} !important; } .no-print { display: none; } }`}</style>
     </div>
   );
 };
@@ -415,13 +467,6 @@ const ReceiptModal = ({ data, photos, onClose }) => {
 // =================================================================
 
 export default function App() {
-  const firebaseConfig = JSON.parse(__firebase_config);
-  const app = initializeApp(firebaseConfig);
-  const auth = getAuth(app);
-  const db = getFirestore(app);
-  const rawAppId = typeof __app_id !== 'undefined' ? __app_id : 'cleaning-dx-app';
-  const appId = rawAppId.replace(/\//g, '_');
-
   const [user, setUser] = useState(null);
   const [photos, setPhotos] = useState([]);
   const [formData, setFormData] = useState({ ...INITIAL_FORM_STATE });
@@ -429,6 +474,8 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isSimpleMode, setIsSimpleMode] = useState(true);
   const [isFactoryMode, setIsFactoryMode] = useState(false);
+  
+  // モーダル管理
   const [showNumPad, setShowNumPad] = useState(false);
   const [showBigInput, setShowBigInput] = useState(false); 
   const [bigInputType, setBigInputType] = useState("name"); 
@@ -457,6 +504,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // データ同期
   useEffect(() => {
     if (!user) return;
     const kartesCollection = collection(db, 'artifacts', appId, 'public', 'data', 'kartes');
@@ -478,6 +526,7 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
+  // 検索ロジック
   const filteredHistory = useMemo(() => {
     const s = searchQuery.toLowerCase();
     const sRaw = s.replace(/-/g, '');
@@ -496,6 +545,7 @@ export default function App() {
     return { total: target.length, stain: target.filter(item => item.stainRemovalRequest !== "なし").length };
   }, [history]);
 
+  // 検索バー入力ハンドラ（タグフォーマット適用）
   const handleSearchChange = (val) => {
     if (/^[0-9-]+$/.test(val)) {
       const raw = val.replace(/-/g, '');
@@ -521,7 +571,6 @@ export default function App() {
       await addDoc(kartesCollection, {
         ...formData, photos, createdAt: serverTimestamp()
       });
-      // ★改良: 音声再生
       playSaveVoice();
       setAlertConfig({ 
         show: true, title: "保存完了", message: "クラウド保存しました！\n続けて次を入力しますか？", type: "confirm", 
@@ -604,58 +653,6 @@ export default function App() {
     if(e) e.preventDefault();
     setIsCamera(true);
   };
-  
-  // ★改良: デカ文字入力モーダル
-  const BigInputModal = ({ title, value, onChange, onClose, placeholder, searchResults, onSelectResult }) => {
-    return (
-      <div className="fixed inset-0 bg-black/80 z-[3000] flex flex-col justify-end animate-in fade-in">
-        <div className="flex-1" onClick={onClose}></div>
-        <div className="bg-white rounded-t-[3rem] p-6 shadow-2xl animate-in slide-in-from-bottom duration-300 max-h-[90vh] flex flex-col">
-          <div className="flex justify-between items-center mb-4 px-2">
-             <div className="text-sm font-bold text-gray-400 uppercase tracking-widest">{title}</div>
-             <button onClick={onClose} className="p-2 bg-gray-100 rounded-full text-gray-500"><X /></button>
-          </div>
-          
-          <div className="text-4xl font-bold text-gray-800 bg-gray-50 w-full py-6 px-4 text-center rounded-3xl border-2 border-blue-100 shadow-inner min-h-[80px] break-words mb-4">
-            {value || <span className="text-gray-300 text-2xl">{placeholder}</span>}
-          </div>
-
-          {searchResults && searchResults.length > 0 && (
-            <div className="mb-4 flex-1 overflow-y-auto min-h-[150px] bg-yellow-50 rounded-2xl p-2 border border-yellow-200">
-              <div className="text-xs font-bold text-yellow-600 mb-2 px-2">候補が見つかりました</div>
-              {searchResults.map(h => (
-                <button key={h.id} onClick={() => onSelectResult(h)} className="w-full bg-white p-3 rounded-xl shadow-sm border border-yellow-100 mb-2 text-left flex justify-between items-center active:bg-yellow-100">
-                  <div>
-                    <div className="text-xs font-black text-blue-600">Tag {h.tagNumber}</div>
-                    <div className="font-bold">{h.customerName}</div>
-                    {/* ★改良: 写真枚数を表示 */}
-                    {h.photos?.length > 0 && <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full mt-1 inline-block">📷 {h.photos.length}枚</span>}
-                  </div>
-                  <div className="text-xs text-gray-400 font-bold">{h.itemType}</div>
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="mb-4">
-            <input
-              type="text"
-              className="w-full p-4 text-xl border-2 border-blue-500 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-200"
-              value={value}
-              onChange={(e) => onChange(e.target.value)}
-              placeholder="ここに入力..."
-              autoFocus
-            />
-          </div>
-
-          <div className="flex gap-3 pb-8">
-            <button type="button" onClick={() => onChange("")} className="py-4 px-6 bg-gray-100 text-gray-500 font-bold rounded-2xl">クリア</button>
-            <button type="button" onClick={onClose} className="flex-1 py-4 bg-blue-600 text-white font-black text-xl rounded-2xl shadow-xl active:scale-95">決定</button>
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div className={`min-h-screen pb-40 ${isFactoryMode ? 'bg-[#0a0a0a] text-gray-300' : 'bg-slate-50 text-gray-800'} font-sans overflow-x-hidden`}>
@@ -672,6 +669,7 @@ export default function App() {
           onClose={() => setShowBigInput(false)}
           searchResults={bigInputType === 'search' ? filteredHistory : null}
           onSelectResult={loadData}
+          mode={bigInputType} // ★追加: モードを渡す
         />
       )}
 
@@ -737,7 +735,7 @@ export default function App() {
                   <button key={h.id} type="button" onClick={() => loadData(h)} className="flex-shrink-0 bg-white/95 backdrop-blur p-4 rounded-[2rem] shadow-xl border border-white text-left min-w-[170px] active:scale-95 transition-all">
                     <div className="text-[10px] font-black text-blue-600 mb-1 uppercase tracking-tighter">Tag {h.tagNumber || "--"}</div>
                     <div className="font-black text-gray-800 truncate text-lg mb-1">{h.customerName} 様</div>
-                    {/* ★改良: 写真枚数を表示 */}
+                    {/* 写真枚数表示 */}
                     {h.photos?.length > 0 && <div className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full inline-block mt-1 font-bold">📷 {h.photos.length}枚</div>}
                   </button>
                 ))}
@@ -745,7 +743,6 @@ export default function App() {
           </div>
         )}
 
-        {/* ... (以下、入力フォーム部分は既存のまま) ... */}
         {!isFactoryMode && (
           <>
             {/* かんたんセット */}
@@ -761,7 +758,6 @@ export default function App() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="space-y-8">
                 <Card title="1. 受付情報" icon={User}>
-                  {/* ... (省略: 受付情報フォーム) ... */}
                   <div className="space-y-6">
                     <div className="flex gap-4">
                       <div className="w-1/3">
@@ -778,11 +774,36 @@ export default function App() {
                       </div>
                     </div>
                     {/* ... */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-[10px] font-black text-gray-400 mb-1 block uppercase">アイテム</label>
+                        <select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white text-lg" value={formData.itemType} onChange={(e) => setFormData({...formData, itemType: e.target.value})}>
+                          <option>ワイシャツ</option><option>スーツ上</option><option>ズボン</option><option>セーター</option><option>コート</option><option>ダウン</option><option>スカート</option><option>ワンピース</option><option>その他</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-gray-400 mb-1 block uppercase">ブランド/色</label>
+                        <input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white text-lg" value={formData.brand} onChange={(e) => setFormData({...formData, brand: e.target.value})} />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-gray-400 mb-2 block">色・柄ショートカット</label>
+                      <div className="flex flex-wrap gap-2">{COLORS_LIST.map(c => <button key={c} type="button" onClick={() => setFormData({...formData, brand: (formData.brand + " " + c).trim()})} className="px-3 py-1 bg-white border rounded-full text-xs font-bold">{c}</button>)}</div>
+                    </div>
+                    <div className="bg-white p-4 rounded-2xl border-2 border-gray-100">
+                      <label className="text-[10px] font-black text-gray-400 mb-3 block">付属品</label>
+                      <div className="flex flex-wrap gap-2">
+                        {ACCESSORIES_LIST.map(acc => (
+                          <button key={acc} type="button" onClick={(e) => { e.preventDefault(); setFormData(p => ({...p, accessories: p.accessories.includes(acc) ? p.accessories.filter(a => a !== acc) : [...p.accessories, acc]})); }} className={`py-3 px-3 text-xs font-black rounded-xl border-2 transition-all active:scale-90 ${(formData.accessories || []).includes(acc) ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>
+                            {acc}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </Card>
 
                 <Card title="2. 検品・詳細" icon={Camera} color="border-l-8 border-rose-500">
-                   {/* ... (省略: カメラ・詳細入力) ... */}
                    <div className="space-y-6">
                     <div className="grid grid-cols-3 gap-3">
                       {photos.map((p, i) => (
@@ -812,7 +833,17 @@ export default function App() {
                         </button>
                       )}
                     </div>
-                    {/* ... */}
+                    <div className="relative">
+                      <textarea className="w-full p-6 border-2 border-gray-100 rounded-[2rem] h-32 text-lg font-bold bg-gray-50 focus:bg-white focus:border-rose-400 outline-none transition-all shadow-inner" placeholder="詳細入力..." value={formData.stainLocation} onChange={(e) => setFormData({...formData, stainLocation: e.target.value})} />
+                      <button type="button" onClick={handleVoiceInput} className={`absolute bottom-4 right-4 p-4 rounded-2xl shadow-xl border-2 active:scale-90 ${isListening ? 'bg-rose-600 text-white animate-pulse' : 'bg-white text-gray-700 border-gray-100'}`}>
+                        {isListening ? <MicOff /> : <Mic />}
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {TEXT_TEMPLATES.map(t => (
+                        <button key={t} type="button" onClick={(e) => { e.preventDefault(); setFormData({...formData, stainLocation: (formData.stainLocation + " " + t).trim()}); }} className="px-4 py-2 bg-white border-2 border-gray-100 rounded-full text-xs font-black text-gray-600 shadow-sm active:bg-rose-50 transition-all">+{t}</button>
+                      ))}
+                    </div>
                   </div>
                 </Card>
               </div>
@@ -829,13 +860,15 @@ export default function App() {
                        </div>
                        {formData.stainRemovalRequest === '有料' && (
                          <div className="mt-3 grid grid-cols-3 gap-2 animate-in fade-in">
+                           {/* ★修正: 800円と3000円を追加済み */}
                            {[500, 800, 1000, 1500, 2000, 3000].map(p => (
                              <button key={p} type="button" onClick={() => setFormData({...formData, stainRemovalPrice: p})} className={`py-2 rounded-lg font-bold border text-xs ${formData.stainRemovalPrice === p ? 'bg-yellow-500 text-white' : 'bg-white'}`}>{p}円</button>
                            ))}
                          </div>
                        )}
                      </div>
-                     {/* ... */}
+                     <div><label className="text-[10px] font-black text-gray-400 mb-2 block">洗浄コース</label><div className="grid grid-cols-3 gap-2">{['スタンダード', 'デラックス', 'ウェット'].map(c => <button key={c} type="button" onClick={() => setFormData({...formData, processInstruction: c})} className={`py-3 rounded-xl font-bold border-2 text-xs ${formData.processInstruction === c ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-500'}`}>{c}</button>)}</div></div>
+                     <div><label className="text-[10px] font-black text-gray-400 mb-2 block uppercase">お渡し予定日</label><input type="date" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black text-xl shadow-inner outline-none focus:border-indigo-500" value={formData.dueDate} onChange={(e) => setFormData({...formData, dueDate: e.target.value})} /></div>
                    </div>
                 </Card>
 
@@ -847,6 +880,28 @@ export default function App() {
                     <Receipt className="w-7 h-7 text-yellow-400" /> タグ（レシート）を発行
                   </button>
                 </div>
+              </div>
+
+            </div>
+
+            <div className="mt-20 space-y-8 animate-in slide-in-from-bottom-8 duration-700">
+              <h2 className="text-3xl font-black text-gray-900 flex items-baseline gap-4">
+                <History className="w-8 h-8 text-blue-600" /> クラウド履歴
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {history.map((h) => (
+                  <div key={h.id} className="bg-white p-6 rounded-[2.5rem] shadow-lg border-2 border-white transition-all hover:shadow-2xl hover:-translate-y-2 group">
+                    <div className="flex justify-between items-start mb-4">
+                       <div className="px-4 py-1 bg-blue-50 text-blue-600 rounded-full font-mono font-black text-xl border border-blue-100 shadow-inner">{h.tagNumber || "--"}</div>
+                       <button type="button" onClick={(e) => { e.preventDefault(); deleteKarte(h.id); }} className="p-3 text-gray-300 hover:text-rose-500 transition-colors"><Trash2 className="w-5 h-5" /></button>
+                    </div>
+                    <h3 className="text-2xl font-black text-gray-800 mb-4 truncate">{h.customerName} <span className="text-sm font-bold text-gray-400">様</span></h3>
+                    <div className="flex items-center gap-2 mb-6">
+                      <span className="bg-gray-100 text-gray-500 px-3 py-1 rounded-full font-bold text-xs">{h.itemType}</span>
+                    </div>
+                    <button type="button" onClick={(e) => { e.preventDefault(); loadData(h); }} className="w-full py-4 bg-indigo-50 text-indigo-700 rounded-2xl font-black active:bg-indigo-600 active:text-white transition-all shadow-sm">詳細を呼び出す</button>
+                  </div>
+                ))}
               </div>
             </div>
           </>
