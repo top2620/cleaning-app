@@ -21,8 +21,7 @@ const firebaseConfig = JSON.parse(__firebase_config);
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-
-const rawAppId = typeof __app_id !== 'undefined' ? __app_id : 'cleaning-dx-v2';
+const rawAppId = typeof __app_id !== 'undefined' ? __app_id : 'cleaning-dx-app';
 const appId = rawAppId.replace(/\//g, '_');
 
 const getTodayDateStr = () => new Date().toISOString().split('T')[0];
@@ -36,16 +35,6 @@ const getFutureDateStr = (days) => {
   const d = new Date();
   d.setDate(d.getDate() + days);
   return d.toISOString().split('T')[0];
-};
-
-// 音声再生
-const playSaveVoice = () => {
-  if ('speechSynthesis' in window) {
-    const uttr = new SpeechSynthesisUtterance("お客様のカルテを保存しました");
-    uttr.lang = "ja-JP";
-    uttr.volume = 0.5;
-    window.speechSynthesis.speak(uttr);
-  }
 };
 
 const INITIAL_FORM_STATE = {
@@ -76,20 +65,17 @@ const IllustrationShirt = () => (
     <circle cx="50" cy="45" r="1.5" fill="#3B82F6" /><circle cx="50" cy="60" r="1.5" fill="#3B82F6" />
   </svg>
 );
-
 const IllustrationSuit = () => (
   <svg viewBox="0 0 100 100" className="w-12 h-12 drop-shadow-md">
     <rect x="22" y="25" width="56" height="65" rx="4" fill="#F1F5F9" stroke="#475569" strokeWidth="2.5" />
     <path d="M50 25 L22 25 L40 60 L50 45 L60 60 L78 25 Z" fill="#E2E8F0" stroke="#475569" strokeWidth="2" />
   </svg>
 );
-
 const IllustrationPants = () => (
   <svg viewBox="0 0 100 100" className="w-12 h-12 drop-shadow-md">
     <path d="M30 15 H70 L75 85 H55 L50 40 L45 85 H25 Z" fill="#EEF2FF" stroke="#4F46E5" strokeWidth="2.5" />
   </svg>
 );
-
 const IllustrationSweater = () => (
   <svg viewBox="0 0 100 100" className="w-12 h-12 drop-shadow-md">
     <path d="M20 35 Q50 25 80 35 L85 85 Q50 90 15 85 Z" fill="#FFF1F2" stroke="#E11D48" strokeWidth="2.5" />
@@ -100,7 +86,7 @@ const QUICK_PRESETS = [
   { id: 'shirt', icon: <IllustrationShirt />, title: 'ワイシャツ', style: 'border-blue-200 bg-blue-50/50 text-blue-900', data: { itemType: "ワイシャツ", processInstruction: "スタンダード", finishing: "ハンガー仕上げ", specialTreatments: ["エリ・ソデ重点"] } },
   { id: 'suit', icon: <IllustrationSuit />, title: 'スーツ上', style: 'border-slate-300 bg-slate-50/50 text-slate-900', data: { itemType: "スーツ上", processInstruction: "スタンダード", finishing: "ソフト仕上げ", specialTreatments: [] } },
   { id: 'pants', icon: <IllustrationPants />, title: 'ズボン', style: 'border-indigo-200 bg-indigo-50/50 text-indigo-900', data: { itemType: "ズボン", processInstruction: "スタンダード", finishing: "センタープレス", specialTreatments: [] } },
-  { id: 'knit', icon: <IllustrationSweater />, title: 'セーター', style: 'border-rose-200 bg-rose-50/50 text-rose-900', data: { itemType: "セーター-ニット", processInstruction: "スタンダード", finishing: "たたみ仕上げ", specialTreatments: ["ネット"] } },
+  { id: 'knit', icon: <IllustrationSweater />, title: 'セーター', style: 'border-rose-200 bg-rose-50/50 text-rose-900', data: { itemType: "セーター", processInstruction: "スタンダード", finishing: "たたみ仕上げ", specialTreatments: ["ネット"] } },
 ];
 
 const TEXT_TEMPLATES = [
@@ -162,37 +148,44 @@ const CustomAlert = ({ show, title, message, type, onConfirm, onCancel }) => {
   );
 };
 
-// ★修正: デカ文字入力モーダル (内部State管理でIME問題を解決)
-const BigInputModal = ({ title, value: initialValue, onChange, onClose, placeholder, searchResults, onSelectResult, mode }) => {
-  const [localValue, setLocalValue] = useState(initialValue);
+// ★修正: 完全独立型デカ文字入力モーダル
+// 入力中は親のStateを一切更新せず、ローカルStateのみで完結させることでIME問題を解消
+const BigInputModal = ({ title, initialValue, onComplete, onClose, placeholder, allHistoryData, mode, onSelectResult }) => {
+  const [value, setValue] = useState(initialValue || "");
+  const [filteredResults, setFilteredResults] = useState([]);
 
+  // 検索モード時のみ、内部でリアルタイム検索を行う
   useEffect(() => {
-    setLocalValue(initialValue);
-  }, []);
+    if (mode === 'search' && allHistoryData) {
+      const s = value.toLowerCase();
+      if (!s) {
+        setFilteredResults([]);
+        return;
+      }
+      const sRaw = s.replace(/-/g, '');
+      const results = allHistoryData.filter(h => {
+        const nameMatch = (h.customerName || "").toLowerCase().includes(s);
+        const tag = (h.tagNumber || "").toLowerCase();
+        const tagRaw = tag.replace(/-/g, '');
+        const tagMatch = tag.includes(s) || tagRaw.includes(sRaw);
+        return nameMatch || tagMatch;
+      });
+      setFilteredResults(results);
+    }
+  }, [value, allHistoryData, mode]);
 
   const handleChange = (e) => {
-    const val = e.target.value;
-    setLocalValue(val);
-    
-    // 検索モードの場合はリアルタイムに親へ通知
-    if (mode === 'search') {
-      onChange(val);
-    }
+    setValue(e.target.value);
   };
 
   const handleConfirm = () => {
-    // 名前モードの場合はここで確定して親へ通知
-    if (mode === 'name') {
-      onChange(localValue);
-    }
+    onComplete(value); // 完了時のみ親へ値を渡す
     onClose();
   };
 
-  const handleClear = () => {
-    setLocalValue("");
-    if (mode === 'search') {
-      onChange("");
-    }
+  const handleSearchResultClick = (result) => {
+    onSelectResult(result);
+    onClose();
   };
 
   return (
@@ -204,17 +197,17 @@ const BigInputModal = ({ title, value: initialValue, onChange, onClose, placehol
            <button onClick={onClose} className="p-2 bg-gray-100 rounded-full text-gray-500"><X /></button>
         </div>
         
-        {/* 入力プレビュー: localValueを表示 */}
+        {/* 入力プレビュー */}
         <div className="text-4xl font-bold text-gray-800 bg-gray-50 w-full py-6 px-4 text-center rounded-3xl border-2 border-blue-100 shadow-inner min-h-[80px] break-words mb-4">
-          {localValue || <span className="text-gray-300 text-2xl">{placeholder}</span>}
+          {value || <span className="text-gray-300 text-2xl">{placeholder}</span>}
         </div>
 
         {/* 検索結果（検索モード時のみ） */}
-        {mode === 'search' && searchResults && searchResults.length > 0 && (
+        {mode === 'search' && filteredResults.length > 0 && (
           <div className="mb-4 flex-1 overflow-y-auto min-h-[150px] bg-yellow-50 rounded-2xl p-2 border border-yellow-200">
             <div className="text-xs font-bold text-yellow-600 mb-2 px-2">候補が見つかりました</div>
-            {searchResults.map(h => (
-              <button key={h.id} onClick={() => onSelectResult(h)} className="w-full bg-white p-3 rounded-xl shadow-sm border border-yellow-100 mb-2 text-left flex justify-between items-center active:bg-yellow-100">
+            {filteredResults.map(h => (
+              <button key={h.id} onClick={() => handleSearchResultClick(h)} className="w-full bg-white p-3 rounded-xl shadow-sm border border-yellow-100 mb-2 text-left flex justify-between items-center active:bg-yellow-100">
                 <div>
                   <div className="text-xs font-black text-blue-600">Tag {h.tagNumber}</div>
                   <div className="font-bold">{h.customerName}</div>
@@ -229,16 +222,18 @@ const BigInputModal = ({ title, value: initialValue, onChange, onClose, placehol
         <div className="mb-4">
           <input
             type="text"
-            className="w-full p-4 text-xl border-2 border-blue-500 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-200"
-            value={localValue}
+            className="w-full p-4 text-xl border-2 border-blue-500 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-200 ime-mode-active"
+            value={value}
             onChange={handleChange}
             placeholder="ここに入力..."
             autoFocus
+            // Enterキーで決定
+            onKeyDown={(e) => { if (e.key === 'Enter') handleConfirm(); }}
           />
         </div>
 
         <div className="flex gap-3 pb-8">
-          <button type="button" onClick={handleClear} className="py-4 px-6 bg-gray-100 text-gray-500 font-bold rounded-2xl">クリア</button>
+          <button type="button" onClick={() => setValue("")} className="py-4 px-6 bg-gray-100 text-gray-500 font-bold rounded-2xl">クリア</button>
           <button type="button" onClick={handleConfirm} className="flex-1 py-4 bg-blue-600 text-white font-black text-xl rounded-2xl shadow-xl active:scale-95">決定</button>
         </div>
         <div className="h-[40vh] w-full bg-white sm:hidden"></div> 
@@ -292,11 +287,12 @@ const CameraModal = ({ onCapture, onClose }) => {
     async function startCamera() {
       try {
         setLoading(true);
+        // フルHD画質
         const constraints = { video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } };
         try { stream = await navigator.mediaDevices.getUserMedia(constraints); } catch { stream = await navigator.mediaDevices.getUserMedia({ video: true }); }
         if (mounted && videoRef.current) {
           videoRef.current.srcObject = stream;
-          videoRef.current.onloadedmetadata = () => videoRef.current.play().catch(console.error);
+          videoRef.current.onloadedmetadata = () => videoRef.current.play().catch(e => console.error(e));
         }
       } catch (e) { console.error(e); } finally { if (mounted) setLoading(false); }
     }
@@ -341,6 +337,7 @@ const CameraModal = ({ onCapture, onClose }) => {
       <div className="relative w-full h-full flex flex-col justify-center items-center overflow-hidden rounded-[2.5rem] bg-gray-900 shadow-2xl">
         <video ref={videoRef} playsInline muted autoPlay className={`flex-1 w-full h-full object-cover ${loading ? 'hidden' : 'block'}`} />
         <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+          {/* 枠を画面いっぱいまで拡大 */}
           <div className="w-[95%] h-[85%] border-4 border-dashed border-white/60 rounded-[2rem] relative shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]">
              <div className="absolute -top-12 left-0 right-0 text-center text-white font-black bg-black/50 py-2 px-6 rounded-full w-fit mx-auto shadow-xl">枠内に衣類を合わせて撮影</div>
           </div>
@@ -397,7 +394,13 @@ const PhotoMarkerModal = ({ photoSrc, onClose, onSave }) => {
         <Edit3 className="w-5 h-5" /> タップして赤丸（マーカー）を追加
       </div>
       <div className="relative w-full max-w-lg mb-4 bg-gray-900 rounded-lg overflow-hidden">
-        <img ref={imgRef} src={photoSrc} alt="edit" className="w-full h-auto max-h-[60vh] object-contain select-none cursor-crosshair" onClick={handleImageClick} />
+        <img 
+          ref={imgRef} 
+          src={photoSrc} 
+          alt="edit" 
+          className="w-full h-auto max-h-[60vh] object-contain select-none cursor-crosshair" 
+          onClick={handleImageClick} 
+        />
         {markers.map((m, i) => (
           <div key={i} className="absolute border-4 border-red-500 rounded-full pointer-events-none transform -translate-x-1/2 -translate-y-1/2 shadow-sm" style={{ left: `${m.x}%`, top: `${m.y}%`, width: `${m.size}%`, aspectRatio: '1 / 1' }} />
         ))}
@@ -467,18 +470,27 @@ const ReceiptModal = ({ data, photos, onClose }) => {
 // =================================================================
 
 export default function App() {
+  const firebaseConfig = JSON.parse(__firebase_config);
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+  const rawAppId = typeof __app_id !== 'undefined' ? __app_id : 'cleaning-dx-app';
+  const appId = rawAppId.replace(/\//g, '_');
+
   const [user, setUser] = useState(null);
   const [photos, setPhotos] = useState([]);
   const [formData, setFormData] = useState({ ...INITIAL_FORM_STATE });
   const [history, setHistory] = useState([]);
-  const [searchQuery, setSearchQuery] = useState("");
+  
+  // 画面状態
   const [isSimpleMode, setIsSimpleMode] = useState(true);
   const [isFactoryMode, setIsFactoryMode] = useState(false);
   
   // モーダル管理
   const [showNumPad, setShowNumPad] = useState(false);
   const [showBigInput, setShowBigInput] = useState(false); 
-  const [bigInputType, setBigInputType] = useState("name"); 
+  const [bigInputConfig, setBigInputConfig] = useState({ title: "", value: "", mode: "name" }); // mode: 'name' | 'search'
+  
   const [isCamera, setIsCamera] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
   const [editingPhotoIndex, setEditingPhotoIndex] = useState(null);
@@ -487,6 +499,7 @@ export default function App() {
 
   const recognitionRef = useRef(null);
 
+  // 初期化: 匿名認証
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -526,36 +539,25 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
-  // 検索ロジック
-  const filteredHistory = useMemo(() => {
-    const s = searchQuery.toLowerCase();
-    const sRaw = s.replace(/-/g, '');
-    return history.filter(h => {
-      const nameMatch = (h.customerName || "").toLowerCase().includes(s);
-      const tag = (h.tagNumber || "").toLowerCase();
-      const tagRaw = tag.replace(/-/g, '');
-      const tagMatch = tag.includes(s) || tagRaw.includes(sRaw);
-      return nameMatch || tagMatch;
-    });
-  }, [history, searchQuery]);
-
   const todaysTasks = useMemo(() => {
     const today = getTodayDateStr();
     const target = history.filter(item => item.dueDate === today);
     return { total: target.length, stain: target.filter(item => item.stainRemovalRequest !== "なし").length };
   }, [history]);
 
-  // 検索バー入力ハンドラ（タグフォーマット適用）
-  const handleSearchChange = (val) => {
-    if (/^[0-9-]+$/.test(val)) {
-      const raw = val.replace(/-/g, '');
-      if (raw.length > 1) {
-         setSearchQuery(raw.slice(0, 1) + '-' + raw.slice(1));
-      } else {
-         setSearchQuery(val);
-      }
-    } else {
-      setSearchQuery(val);
+  // ★入力開始 (デカ文字モーダルを開く)
+  const startInput = (title, mode, initialValue) => {
+    setBigInputConfig({ title, mode, value: initialValue });
+    setShowBigInput(true);
+  };
+
+  // ★入力完了 (デカ文字モーダルから戻る)
+  const handleInputComplete = (val) => {
+    if (bigInputConfig.mode === 'name') {
+      setFormData(prev => ({ ...prev, customerName: val }));
+    } else if (bigInputConfig.mode === 'search') {
+      // 検索モードでは入力確定時ではなく、選択時にloadDataが呼ばれるので、
+      // ここでは何もしないか、検索バーの見た目上の値を更新する等の処理が可能
     }
   };
 
@@ -585,7 +587,6 @@ export default function App() {
   const resetForm = () => {
     setFormData({ ...INITIAL_FORM_STATE, manageNo: "" });
     setPhotos([]);
-    setSearchQuery("");
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -593,7 +594,7 @@ export default function App() {
     const load = () => {
       setFormData(data);
       setPhotos(data.photos || []);
-      setSearchQuery("");
+      setBigInputConfig({ title: "", value: "", mode: "" }); // 検索窓リセット
       setShowBigInput(false);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     };
@@ -649,6 +650,13 @@ export default function App() {
     recognitionRef.current = r; r.start();
   };
 
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleAppendText = (field, text) => setFormData(prev => ({ ...prev, [field]: (prev[field] || "") + (prev[field] ? " " : "") + text }));
+
   const capturePhoto = (e) => {
     if(e) e.preventDefault();
     setIsCamera(true);
@@ -662,14 +670,15 @@ export default function App() {
       
       {showBigInput && (
         <BigInputModal 
-          title={bigInputType === 'name' ? "お客様名" : "呼び出し検索"}
-          placeholder={bigInputType === 'name' ? "名前を入力" : "タグ番号・名前"}
-          value={bigInputType === 'name' ? formData.customerName : searchQuery}
-          onChange={(val) => bigInputType === 'name' ? setFormData({...formData, customerName: val}) : handleSearchChange(val)}
+          title={bigInputConfig.title}
+          placeholder="入力..."
+          value={bigInputConfig.value}
+          onChange={(val) => setBigInputConfig(prev => ({ ...prev, value: val }))}
+          onComplete={handleInputComplete}
           onClose={() => setShowBigInput(false)}
-          searchResults={bigInputType === 'search' ? filteredHistory : null}
+          searchResults={bigInputConfig.mode === 'search' ? history : null} // 全履歴を渡す
           onSelectResult={loadData}
-          mode={bigInputType} // ★追加: モードを渡す
+          mode={bigInputConfig.mode}
         />
       )}
 
@@ -701,10 +710,10 @@ export default function App() {
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/50 w-5 h-5 group-focus-within:text-white transition-colors" />
           <button 
             type="button"
-            onClick={() => { setBigInputType('search'); setShowBigInput(true); }}
+            onClick={() => startInput("呼び出し検索", 'search', "")}
             className="w-full p-4 pl-12 rounded-2xl bg-white/10 border-2 border-white/5 text-white text-left opacity-90 hover:bg-white/20 transition-all flex items-center"
           >
-            {searchQuery || <span className="opacity-50">🔍 呼び出し検索（タップして入力）</span>}
+            <span className="opacity-50">🔍 呼び出し検索（タップして入力）</span>
           </button>
         </div>
       </header>
@@ -712,7 +721,7 @@ export default function App() {
       <main className="p-4 sm:p-6 max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
         
         {/* 工場モードサマリー */}
-        {isFactoryMode && !searchQuery && (
+        {isFactoryMode && (
           <div className="grid grid-cols-2 gap-4 mb-8">
             <div className="bg-zinc-800 p-6 rounded-3xl text-center border border-zinc-700 shadow-xl">
                <div className="text-[10px] font-bold text-gray-500 mb-1 uppercase tracking-widest">本日の仕上がり</div>
@@ -723,23 +732,6 @@ export default function App() {
                <div className="text-[10px] font-bold text-yellow-600 mb-1 uppercase tracking-widest">シミ抜きあり</div>
                <div className="text-4xl font-black text-yellow-500">{todaysTasks.stain} <span className="text-sm text-gray-500">点</span></div>
             </div>
-          </div>
-        )}
-
-        {/* 検索結果（呼び出し候補） */}
-        {searchQuery && filteredHistory.length > 0 && !showBigInput && (
-          <div className="bg-blue-600 p-5 rounded-[2.5rem] shadow-2xl border-4 border-white/20 animate-in zoom-in duration-300">
-             <h3 className="text-white font-black text-sm mb-4 flex items-center gap-2 px-2 uppercase tracking-widest">履歴から呼び出し</h3>
-             <div className="flex gap-4 overflow-x-auto pb-4 px-2 scrollbar-hide">
-                {filteredHistory.slice(0, 5).map(h => (
-                  <button key={h.id} type="button" onClick={() => loadData(h)} className="flex-shrink-0 bg-white/95 backdrop-blur p-4 rounded-[2rem] shadow-xl border border-white text-left min-w-[170px] active:scale-95 transition-all">
-                    <div className="text-[10px] font-black text-blue-600 mb-1 uppercase tracking-tighter">Tag {h.tagNumber || "--"}</div>
-                    <div className="font-black text-gray-800 truncate text-lg mb-1">{h.customerName} 様</div>
-                    {/* 写真枚数表示 */}
-                    {h.photos?.length > 0 && <div className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full inline-block mt-1 font-bold">📷 {h.photos.length}枚</div>}
-                  </button>
-                ))}
-             </div>
           </div>
         )}
 
@@ -768,7 +760,7 @@ export default function App() {
                       </div>
                       <div className="w-2/3">
                         <label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">お客様名</label>
-                        <button type="button" onClick={() => { setBigInputType('name'); setShowBigInput(true); }} className="w-full p-5 border-2 border-gray-100 rounded-3xl bg-white text-left shadow-inner flex items-center">
+                        <button type="button" onClick={() => startInput("お客様名", 'name', formData.customerName)} className="w-full p-5 border-2 border-gray-100 rounded-3xl bg-white text-left shadow-inner flex items-center">
                           {formData.customerName ? <span className="text-xl font-black">{formData.customerName}</span> : <span className="text-gray-300 text-lg">名前を入力...</span>}
                         </button>
                       </div>
@@ -841,7 +833,7 @@ export default function App() {
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {TEXT_TEMPLATES.map(t => (
-                        <button key={t} type="button" onClick={(e) => { e.preventDefault(); setFormData({...formData, stainLocation: (formData.stainLocation + " " + t).trim()}); }} className="px-4 py-2 bg-white border-2 border-gray-100 rounded-full text-xs font-black text-gray-600 shadow-sm active:bg-rose-50 transition-all">+{t}</button>
+                        <button key={t} type="button" onClick={(e) => { e.preventDefault(); handleAppendText('stainLocation', t); }} className="px-4 py-2 bg-white border-2 border-gray-100 rounded-full text-xs font-black text-gray-600 shadow-sm active:bg-rose-50 transition-all">+{t}</button>
                       ))}
                     </div>
                   </div>
@@ -849,7 +841,7 @@ export default function App() {
               </div>
 
               <div className="space-y-8">
-                <Card title="3. 指示・仕上げ" icon={Scissors}>
+                <Card title="3. 指示・仕上げ" icon={Scissors} visible={!isSimpleMode}>
                    <div className="space-y-6">
                      <div>
                        <label className="text-[10px] font-black text-gray-400 mb-3 block uppercase tracking-widest px-1">シミ抜き指定</label>
@@ -882,27 +874,6 @@ export default function App() {
                 </div>
               </div>
 
-            </div>
-
-            <div className="mt-20 space-y-8 animate-in slide-in-from-bottom-8 duration-700">
-              <h2 className="text-3xl font-black text-gray-900 flex items-baseline gap-4">
-                <History className="w-8 h-8 text-blue-600" /> クラウド履歴
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {history.map((h) => (
-                  <div key={h.id} className="bg-white p-6 rounded-[2.5rem] shadow-lg border-2 border-white transition-all hover:shadow-2xl hover:-translate-y-2 group">
-                    <div className="flex justify-between items-start mb-4">
-                       <div className="px-4 py-1 bg-blue-50 text-blue-600 rounded-full font-mono font-black text-xl border border-blue-100 shadow-inner">{h.tagNumber || "--"}</div>
-                       <button type="button" onClick={(e) => { e.preventDefault(); deleteKarte(h.id); }} className="p-3 text-gray-300 hover:text-rose-500 transition-colors"><Trash2 className="w-5 h-5" /></button>
-                    </div>
-                    <h3 className="text-2xl font-black text-gray-800 mb-4 truncate">{h.customerName} <span className="text-sm font-bold text-gray-400">様</span></h3>
-                    <div className="flex items-center gap-2 mb-6">
-                      <span className="bg-gray-100 text-gray-500 px-3 py-1 rounded-full font-bold text-xs">{h.itemType}</span>
-                    </div>
-                    <button type="button" onClick={(e) => { e.preventDefault(); loadData(h); }} className="w-full py-4 bg-indigo-50 text-indigo-700 rounded-2xl font-black active:bg-indigo-600 active:text-white transition-all shadow-sm">詳細を呼び出す</button>
-                  </div>
-                ))}
-              </div>
             </div>
           </>
         )}
